@@ -1,0 +1,28 @@
+# Copy to criteria.yaml (git-ignored) and edit.
+profile: >
+  Student interested in AI and robotics. Prefer hands-on hackathons and
+  competitions with prizes or travel support over passive talks.
+interests: [artificial intelligence, machine learning, robotics]
+keywords:
+  include: [AI, ML, robotics, hackathon]
+  exclude: [crypto, NFT, web3]
+eventTypes: [hackathon, conference, competition, fellowship, summer_school]
+home:
+  city: Athens
+  country: Greece
+  timezone: Europe/Athens
+# Minimum worth score (0-10) per location tier.
+minScore: { local: 5, country: 7, abroad: 9, online: 6 }
+dateWindowDays: 180
+eligibility:
+  student: true
+  age: 20
+  nationality: Greek
+limits:
+  maxLlmCallsPerRun: 60
+  monthlyBudgetUsd: 1
+sources:
+  - kind: devpost
+  - kind: mlh
+calendar:
+  tentativeHoldOnApply: false

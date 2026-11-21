@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+criteria.yaml
+# agent configuration (never committed)
+.claude/
+CLAUDE.md
+AGENTS.md
+.mcp.json
