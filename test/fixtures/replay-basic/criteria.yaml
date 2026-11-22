@@ -1,0 +1,15 @@
+# Replay fixture for the SPEC end-to-end acceptance test.
+profile: Student interested in AI and robotics.
+interests: [AI, robotics]
+keywords:
+  include: [AI, robotics]
+  exclude: [crypto]
+eventTypes: [hackathon, competition, meetup]
+home:
+  city: Athens
+  country: Greece
+  timezone: Europe/Athens
+minScore: { local: 5, country: 7, abroad: 9, online: 6 }
+sources:
+  - kind: devpost
+  - kind: mlh
