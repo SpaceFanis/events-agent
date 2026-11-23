@@ -18,6 +18,9 @@ const hackathonSchema = z.object({
   prize_amount: z.string().nullish(),
   organization_name: z.string().nullish(),
   invite_only: z.boolean().nullish(),
+  eligibility_requirement_invite_only_description: z.string().nullish(),
+  registrations_count: z.number().nullish(),
+  start_a_submission_url: z.string().nullish(),
 });
 
 const pageSchema = z.object({
@@ -44,6 +47,38 @@ export function cleanPrize(html: string | null | undefined): string | null {
   return text;
 }
 
+/**
+ * Devpost's listing for one hackathon as plain labelled lines: the evidence extraction uses when
+ * Devpost blocks the event page. Only what the API states; nothing inferred.
+ */
+export function listingText(hackathon: Hackathon): string {
+  // Lines only for what the API fills: a placeholder ("not listed") or a "no" could be quoted as
+  // evidence for a value the listing never states. Access is stated only when it is invite-only.
+  const lines = [`Hackathon: ${hackathon.title.trim()}`];
+  const organiser = hackathon.organization_name?.trim();
+  if (organiser) lines.push(`Organiser: ${organiser}`);
+  lines.push(
+    `Location: ${hackathon.displayed_location.location.trim()}`,
+    `Submission period: ${hackathon.submission_period_dates}`,
+  );
+  if (hackathon.invite_only === true) {
+    lines.push("Invite only: yes");
+    const inviteRule = hackathon.eligibility_requirement_invite_only_description?.trim();
+    if (inviteRule) lines.push(`Invite-only requirement: ${inviteRule}`);
+  }
+  const themes = hackathon.themes.map((theme) => theme.name);
+  if (themes.length > 0) lines.push(`Themes: ${themes.join(", ")}`);
+  const prize = cleanPrize(hackathon.prize_amount);
+  if (prize !== null) lines.push(`Total prizes: ${prize}`);
+  if (typeof hackathon.registrations_count === "number") {
+    lines.push(`Participants registered: ${String(hackathon.registrations_count)}`);
+  }
+  lines.push(`Hackathon page: ${hackathon.url}`);
+  const submit = hackathon.start_a_submission_url?.trim();
+  if (submit) lines.push(`Start a submission: ${submit}`);
+  return lines.join("\n");
+}
+
 export function toSourceItem(hackathon: Hackathon): SourceItem {
   const location = hackathon.displayed_location.location.trim();
   const dates = parseMonthDayRange(hackathon.submission_period_dates);
@@ -66,6 +101,7 @@ export function toSourceItem(hackathon: Hackathon): SourceItem {
     prizes: cleanPrize(hackathon.prize_amount),
     tags: hackathon.themes.map((theme) => theme.name),
     unverifiedFields: unverified,
+    listingText: listingText(hackathon),
   };
 }
 

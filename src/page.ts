@@ -5,6 +5,14 @@ export const MAX_PAGE_CHARS = 60_000;
 
 export interface Page {
   url: string;
+  /**
+   * "page": the event's own web page. "listing": the source's listing data, used when the page
+   * blocks us; weaker evidence, cached and logged under its own key so it never stands in for a
+   * real page extraction later.
+   */
+  kind: "page" | "listing";
+  /** Key for the extraction cache, the LLM call log and replay fixtures. */
+  cacheKey: string;
   /** Readable text: visible text plus any JSON-LD event data, whitespace collapsed. */
   text: string;
   /** True when `text` was cut at MAX_PAGE_CHARS. */
@@ -94,9 +102,35 @@ export function readPage(url: string, html: string): Page {
   if (truncated) text = text.slice(0, MAX_PAGE_CHARS);
   return {
     url,
+    kind: "page",
+    cacheKey: url,
     text,
     truncated,
     links: collectLinks(html, url),
+    contentHash: createHash("sha256").update(text).digest("hex"),
+  };
+}
+
+/** A source's listing text standing in for a blocked event page (see Page.kind). */
+export function listingPage(url: string, listing: string): Page {
+  let text = listing;
+  const truncated = text.length > MAX_PAGE_CHARS;
+  if (truncated) text = text.slice(0, MAX_PAGE_CHARS);
+  const links = new Set<string>();
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"']+/g)) {
+    try {
+      links.add(new URL(match[0]).toString());
+    } catch {
+      // not a URL; ignore
+    }
+  }
+  return {
+    url,
+    kind: "listing",
+    cacheKey: `${url}#listing`,
+    text,
+    truncated,
+    links,
     contentHash: createHash("sha256").update(text).digest("hex"),
   };
 }

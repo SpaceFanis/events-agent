@@ -25,6 +25,11 @@ export interface SourceItem {
   tags: string[];
   /** Fields the source could not state reliably; shown as "⚠️ unverified" in alerts. */
   unverifiedFields: string[];
+  /**
+   * The source's own data about the event as plain text (Devpost's API listing). Extraction falls
+   * back to it, as weaker evidence, when the event page blocks us (401/403).
+   */
+  listingText?: string;
 }
 
 /** An item after normalization: canonical URL, dedupe hash, location tier, UTC times. */
@@ -49,6 +54,8 @@ export interface ScoutedEvent {
   prizes: string | null;
   tags: string[];
   unverifiedFields: string[];
+  /** See SourceItem.listingText. */
+  listingText?: string;
 }
 
 /**

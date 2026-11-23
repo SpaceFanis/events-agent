@@ -3,7 +3,7 @@
  * Times are UTC ISO strings; `events.timezone` holds the event's IANA zone.
  */
 /** Bump on any schema change and add a migration; migrate() refuses unknown versions. */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 /**
  * The schema version, one row. Turso's server refuses `PRAGMA user_version = N`, so since
@@ -91,6 +91,8 @@ export const SCHEMA: readonly string[] = [
     -- Google Calendar entry created by a button press (going / accepted / tentative hold).
     calendar_event_id TEXT,
     calendar_state TEXT CHECK (calendar_state IN ('tentative', 'confirmed')),
+    -- The source's listing data as text (Devpost API); extraction evidence when the page blocks us.
+    listing_text TEXT,
     first_seen_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE (source, source_id)
@@ -179,4 +181,5 @@ export const MIGRATIONS: Readonly<Record<number, readonly string[]>> = {
   ],
   4: [SOURCE_HEALTH],
   5: [SCHEMA_META],
+  6: [`ALTER TABLE events ADD COLUMN listing_text TEXT`],
 };

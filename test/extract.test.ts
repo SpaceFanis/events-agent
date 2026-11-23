@@ -17,7 +17,7 @@ import {
 } from "../src/extract.js";
 import { costUsd, HAIKU, SONNET, worstCaseCostUsd } from "../src/llm.js";
 import { normalizeItem } from "../src/normalize.js";
-import { decodeEntities, MAX_PAGE_CHARS, readPage } from "../src/page.js";
+import { decodeEntities, listingPage, MAX_PAGE_CHARS, readPage } from "../src/page.js";
 import { NO_DETAILS, type SourceItem, type StoredEvent } from "../src/types.js";
 
 const criteria = parseCriteria(`
@@ -255,6 +255,19 @@ describe("validateExtraction", () => {
     expect(full.applyDeadline).toBe("2026-12-05T21:59:59.000Z"); // end of that day, Athens
     expect(full.resultsDate).toBe("2026-12-06T22:00:00.000Z");
     expect(full.unverifiedFields).toEqual([]);
+  });
+
+  it("trusts only the exact links of listing data, not other paths on the host", () => {
+    const listing = listingPage(
+      "https://hack.devpost.com/",
+      "Hackathon: Hack\nHackathon page: https://hack.devpost.com/",
+    );
+    expect(listing).toMatchObject({
+      kind: "listing",
+      cacheKey: "https://hack.devpost.com/#listing",
+    });
+    expect(linkIsTrusted("https://hack.devpost.com/", listing)).toBe(true);
+    expect(linkIsTrusted("https://hack.devpost.com/register", listing)).toBe(false);
   });
 
   it("refuses links the page doesn't contain on other domains", () => {
@@ -520,10 +533,13 @@ describe("LLM cost and caps", () => {
   });
 });
 
-/** Undoes what schema version 5 added (the version table), leaving the version-4 shape. */
-const V5_ADDITIONS_DROPPED = ["DROP TABLE schema_meta"];
+/** Undoes what schema version 6 added (listing text), leaving the version-5 shape. */
+const V6_ADDITIONS_DROPPED = ["ALTER TABLE events DROP COLUMN listing_text"];
 
-/** Undoes what schema versions 4 (M5) and 5 added, leaving the version-3 shape. */
+/** Undoes what schema versions 5 (the version table) and 6 added, leaving the version-4 shape. */
+const V5_ADDITIONS_DROPPED = [...V6_ADDITIONS_DROPPED, "DROP TABLE schema_meta"];
+
+/** Undoes what schema versions 4 (M5) to 6 added, leaving the version-3 shape. */
 const V4_ADDITIONS_DROPPED = [...V5_ADDITIONS_DROPPED, "DROP TABLE source_health"];
 
 async function metaVersion(client: Client): Promise<unknown> {
@@ -642,14 +658,37 @@ describe("schema migration", () => {
     // From here on, no PRAGMA writes: the upgrade must work on Turso too.
     const client = tursoLike(raw);
     const store = new LibsqlStore(client);
-    await expect(store.checkSchema()).rejects.toThrow(/unversioned, code expects 5/);
+    await expect(store.checkSchema()).rejects.toThrow(/unversioned, code expects 6/);
     await store.migrate();
     await store.checkSchema();
     expect(await metaVersion(client)).toBe(SCHEMA_VERSION);
     expect(await store.getEvent(1)).toMatchObject({ title: "Old", status: "going" });
     store.close();
   });
-  it("upgrades a version-3 database to 5: source health, events kept", async () => {
+  it("upgrades a version-5 database on Turso to 6: listing text column, events kept", async () => {
+    const raw = createClient({ url: ":memory:" });
+    await raw.batch(
+      [
+        ...SCHEMA,
+        ...V6_ADDITIONS_DROPPED,
+        "INSERT INTO schema_meta (id, version) VALUES (1, 5)",
+        `INSERT INTO events (source, source_id, canonical_url, title, type, timezone, is_online, location_tier, status, first_seen_at, updated_at)
+         VALUES ('devpost', '1', 'https://x.com/', 'Old', 'hackathon', 'UTC', 1, 'online', 'pending_extraction', 'a', 'a')`,
+      ],
+      "write",
+    );
+    const client = tursoLike(raw);
+    const store = new LibsqlStore(client);
+    await expect(store.checkSchema()).rejects.toThrow(/version 5, code expects 6/);
+    await store.migrate();
+    await store.checkSchema();
+    expect(await metaVersion(client)).toBe(SCHEMA_VERSION);
+    const old = await store.getEvent(1);
+    expect(old).toMatchObject({ title: "Old", status: "pending_extraction" });
+    expect(old).not.toHaveProperty("listingText");
+    store.close();
+  });
+  it("upgrades a version-3 database to 6: source health, events kept", async () => {
     const client = createClient({ url: ":memory:" });
     await client.batch(
       [
@@ -662,7 +701,7 @@ describe("schema migration", () => {
       "write",
     );
     const store = new LibsqlStore(client);
-    await expect(store.checkSchema()).rejects.toThrow(/unversioned, code expects 5/);
+    await expect(store.checkSchema()).rejects.toThrow(/unversioned, code expects 6/);
     await store.migrate();
     await store.checkSchema();
     expect(await store.getEvent(1)).toMatchObject({ title: "Old", status: "watching" });
@@ -672,7 +711,7 @@ describe("schema migration", () => {
     });
     store.close();
   });
-  it("upgrades a version-2 database to 5: calendar columns, settings, events kept", async () => {
+  it("upgrades a version-2 database to 6: calendar columns, settings, events kept", async () => {
     const client = createClient({ url: ":memory:" });
     await client.batch(
       [
@@ -685,7 +724,7 @@ describe("schema migration", () => {
       "write",
     );
     const store = new LibsqlStore(client);
-    await expect(store.checkSchema()).rejects.toThrow(/unversioned, code expects 5/);
+    await expect(store.checkSchema()).rejects.toThrow(/unversioned, code expects 6/);
     await store.migrate();
     await store.checkSchema();
     expect(await store.getEvent(1)).toMatchObject({

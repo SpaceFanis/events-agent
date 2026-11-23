@@ -20,7 +20,8 @@ import {
   type LlmModel,
 } from "./llm.js";
 import { sendNoticeOnce } from "./notices.js";
-import { readPage, type Page } from "./page.js";
+import { escapeHtml } from "./alert.js";
+import { listingPage, readPage, type Page } from "./page.js";
 import type { Messenger } from "./telegram.js";
 import type { StoredEvent } from "./types.js";
 
@@ -79,6 +80,12 @@ export interface EnrichStats {
 
 /** A gone page won't come back: counted like an unusable LLM answer. Other failures are retried. */
 const GONE_STATUSES = new Set([404, 410]);
+
+/** The site refuses automated readers: fall back to the listing text when the source gave one. */
+const BLOCKED_STATUSES = new Set([401, 403]);
+
+/** Blocked pages (with no listing to fall back on) of one source in one run before a notice. */
+export const PAGES_BLOCKED_NOTICE_AFTER = 3;
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -154,7 +161,7 @@ export async function enrichPending(
     try {
       response = await deps.llm.complete({
         model,
-        url: page.url,
+        url: page.cacheKey,
         system,
         prompt,
         schema: extractionSchema,
@@ -167,7 +174,7 @@ export async function enrichPending(
       if (error instanceof LlmError && error.failure === "request") {
         await logCall({
           runId,
-          url: page.url,
+          url: page.cacheKey,
           model,
           outcome: "error",
           inputTokens: 0,
@@ -195,7 +202,7 @@ export async function enrichPending(
           : (response.stopReason ?? "no_output");
     await logCall({
       runId,
-      url: page.url,
+      url: page.cacheKey,
       model,
       outcome,
       inputTokens: response.usage.inputTokens,
@@ -221,6 +228,9 @@ export async function enrichPending(
     startedAt,
     criteria.limits.maxLlmCallsPerRun * 2,
   );
+  // Pages that refused us (401/403): read from listing text, or (no listing) stuck, per source.
+  let fromListing = 0;
+  const blockedBySource = new Map<string, number>();
   for (const event of pending) {
     const label = `extract event ${String(event.id)}`;
     const now = (): Date => deps.now();
@@ -228,21 +238,35 @@ export async function enrichPending(
     try {
       page = readPage(event.canonicalUrl, await deps.http.getText(event.canonicalUrl));
     } catch (error) {
-      errors.push(`${label}: page fetch failed: ${message(error)}`);
-      // A gone page counts against the event; anything else (site down today) is just retried.
-      if (error instanceof HttpError && GONE_STATUSES.has(error.status)) {
-        await store.failExtraction(event.id, MAX_EXTRACT_ATTEMPTS, now());
+      const blocked = error instanceof HttpError && BLOCKED_STATUSES.has(error.status);
+      if (blocked && event.listingText !== undefined) {
+        // Weaker evidence than the page, but real data: fields it lacks stay unverified.
+        page = listingPage(event.canonicalUrl, event.listingText);
+        fromListing++;
       } else {
-        await store.deferExtraction(event.id, now());
+        errors.push(`${label}: page fetch failed: ${message(error)}`);
+        if (blocked)
+          blockedBySource.set(event.source, (blockedBySource.get(event.source) ?? 0) + 1);
+        // A gone page counts against the event; anything else (site down today) is just retried.
+        if (error instanceof HttpError && GONE_STATUSES.has(error.status)) {
+          await store.failExtraction(event.id, MAX_EXTRACT_ATTEMPTS, now());
+        } else {
+          await store.deferExtraction(event.id, now());
+        }
+        continue;
       }
-      continue;
     }
     if (page.truncated) {
       errors.push(`${label}: page text cut at ${String(page.text.length)} characters`);
     }
 
     // 1. Haiku's answer: from the cache (extract once per URL) or a new call.
-    const cached = await store.getExtraction(page.url);
+    const stored = await store.getExtraction(page.cacheKey);
+    // Listing text is refreshed while the event waits; an answer about an older listing is stale.
+    const cached =
+      stored !== null && page.kind === "listing" && stored.contentHash !== page.contentHash
+        ? null
+        : stored;
     const cachedExtraction = cached === null ? null : parseExtraction(cached.rawJson);
     let answer: { model: LlmModel; rawJson: string; extraction: Extraction };
     let spent: { inputTokens: number; outputTokens: number; costUsd: number };
@@ -298,7 +322,7 @@ export async function enrichPending(
       };
       // Paid for: cache it now, so a failure below never pays for this page's Haiku call again.
       await store.saveExtraction(
-        { url: page.url, contentHash: page.contentHash, ...answer, ...spent },
+        { url: page.cacheKey, contentHash: page.contentHash, ...answer, ...spent },
         now(),
       );
     }
@@ -334,7 +358,7 @@ export async function enrichPending(
         // Either way the escalation is done: record it so it isn't repeated.
         await store.saveExtraction(
           {
-            url: page.url,
+            url: page.cacheKey,
             contentHash: page.contentHash,
             model: SONNET,
             rawJson: answer.rawJson,
@@ -368,6 +392,23 @@ export async function enrichPending(
     for (const eventId of rejectedEvents) {
       await store.failExtraction(eventId, MAX_EXTRACT_ATTEMPTS, deps.now());
     }
+  }
+  if (fromListing > 0) {
+    errors.push(
+      `${String(fromListing)} event pages blocked (HTTP 401/403): fell back to the source's listing data`,
+    );
+  }
+  for (const [source, count] of blockedBySource) {
+    if (count < PAGES_BLOCKED_NOTICE_AFTER) continue;
+    // Once a month per source: these events wait (retried every run) until the sites let us in.
+    await sendNoticeOnce(
+      deps,
+      `pages-blocked:${source}:${startedAt.toISOString().slice(0, 7)}`,
+      escapeHtml(
+        `⚠️ Events agent: ${String(count)} event pages from source "${source}" refused us this run (HTTP 401/403), so those events can't be checked or alerted. They are retried every run.`,
+      ),
+      errors,
+    );
   }
   if (capHit !== null) await sendCapNotice(deps, capHit, runId, budget, errors);
 }

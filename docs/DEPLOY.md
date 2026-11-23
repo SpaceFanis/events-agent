@@ -2,6 +2,8 @@
 
 Two pieces share one Turso database: the daily scout (GitHub Actions, `.github/workflows/scout.yml`) and the button webhook (Cloudflare Worker, `wrangler.toml` → `worker/index.ts`). The scout migrates the schema; the Worker refuses to run against another version, so **run the scout once before the Worker gets its first press** after a schema change.
 
+**After any merge that bumps `SCHEMA_VERSION`** (`src/db/schema.ts`): run the scout (`gh workflow run scout.yml`) and then `npm run worker:deploy` right after. Until both are done, button presses get a "schema mismatch" error and Telegram retries them later, so nothing is lost.
+
 ## 1. Secrets you need
 
 | Name                      | Scout (Actions) | Worker | Where it comes from                                       |
