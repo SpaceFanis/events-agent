@@ -11,7 +11,7 @@ import type {
   ScoutedEvent,
   StoredEvent,
 } from "../types.js";
-import { MIGRATIONS, SCHEMA, SCHEMA_VERSION } from "./schema.js";
+import { MIGRATIONS, SCHEMA, SCHEMA_VERSION, SET_SCHEMA_VERSION } from "./schema.js";
 
 const locationTierSchema = z.enum([
   "online",
@@ -278,6 +278,10 @@ function toActionableEvent(row: Row): ActionableEvent {
   };
 }
 
+function unversionedTables(tables: readonly string[]): string {
+  return `database has tables but no schema version (${tables.join(", ")}); refusing to guess. If it is a new database left half-created by a failed first run, drop these tables and run the scout again`;
+}
+
 /** The database is at another schema version than this code (not a connection failure). */
 export class SchemaMismatchError extends Error {
   override name = "SchemaMismatchError";
@@ -286,23 +290,54 @@ export class SchemaMismatchError extends Error {
 export class LibsqlStore implements Store {
   constructor(private readonly client: Client) {}
 
-  async migrate(): Promise<void> {
-    const row = (await this.client.execute("PRAGMA user_version")).rows[0];
+  /** User tables in the database (SQLite and Turso internals excluded). */
+  private async tableNames(): Promise<string[]> {
+    const tables = await this.client.execute(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_litestream%' AND name NOT LIKE 'libsql_%'",
+    );
+    return tables.rows.map((r) => text(r, "name"));
+  }
+
+  /** The version row in `schema_meta` (schema 5+), or null when the table is empty. */
+  private async metaRowVersion(): Promise<number | null> {
+    const row = (await this.client.execute("SELECT version FROM schema_meta WHERE id = 1")).rows[0];
+    return row === undefined ? null : integer(row, "version");
+  }
+
+  private async metaVersion(): Promise<number> {
+    const version = await this.metaRowVersion();
+    if (version === null) throw new Error("schema_meta has no version row; refusing to guess");
+    return version;
+  }
+
+  /**
+   * The schema version: from `schema_meta`, or for databases made before version 5 (local SQLite
+   * only; Turso never accepted the PRAGMA write) from `PRAGMA user_version`. 0 means empty.
+   */
+  private async schemaVersion(tables: readonly string[]): Promise<number> {
+    if (tables.includes("schema_meta")) return this.metaVersion();
+    if (tables.length === 0) return 0;
+    let result;
+    try {
+      result = await this.client.execute("PRAGMA user_version");
+    } catch (error) {
+      // Turso may refuse the PRAGMA altogether; a Turso database never had a PRAGMA version.
+      throw new Error(
+        `${unversionedTables(tables)} (reading PRAGMA user_version failed: ${error instanceof Error ? error.message : String(error)})`,
+        { cause: error },
+      );
+    }
+    const row = result.rows[0];
     if (row === undefined) throw new Error("PRAGMA user_version returned no row");
-    const version = integer(row, "user_version");
+    return integer(row, "user_version");
+  }
+
+  async migrate(): Promise<void> {
+    const tables = await this.tableNames();
+    const version = await this.schemaVersion(tables);
     if (version === 0) {
-      const tables = await this.client.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_litestream%'",
-      );
-      if (tables.rows.length > 0) {
-        throw new Error(
-          `database has tables but no schema version (${tables.rows.map((r) => text(r, "name")).join(", ")}); refusing to guess`,
-        );
-      }
-      await this.client.batch(
-        [...SCHEMA, `PRAGMA user_version = ${String(SCHEMA_VERSION)}`],
-        "write",
-      );
+      if (tables.length > 0) throw new Error(unversionedTables(tables));
+      await this.client.batch([...SCHEMA, SET_SCHEMA_VERSION], "write");
     } else if (version > 0 && version < SCHEMA_VERSION) {
       const steps: string[] = [];
       for (let next = version + 1; next <= SCHEMA_VERSION; next++) {
@@ -312,10 +347,7 @@ export class LibsqlStore implements Store {
         steps.push(...migration);
       }
       // One write batch: the database is either fully migrated or untouched.
-      await this.client.batch(
-        [...steps, `PRAGMA user_version = ${String(SCHEMA_VERSION)}`],
-        "write",
-      );
+      await this.client.batch([...steps, SET_SCHEMA_VERSION], "write");
     } else if (version !== SCHEMA_VERSION) {
       throw new Error(
         `database schema is version ${String(version)}, code expects ${String(SCHEMA_VERSION)}`,
@@ -707,11 +739,14 @@ export class LibsqlStore implements Store {
   }
 
   async checkSchema(): Promise<void> {
-    const row = (await this.client.execute("PRAGMA user_version")).rows[0];
-    const version = row === undefined ? null : integer(row, "user_version");
+    // Read-only, and only the table the cron writes: the Worker never touches the PRAGMA.
+    const meta = await this.client.execute(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'",
+    );
+    const version = meta.rows.length === 0 ? null : await this.metaRowVersion();
     if (version !== SCHEMA_VERSION) {
       throw new SchemaMismatchError(
-        `database schema is version ${String(version)}, code expects ${String(SCHEMA_VERSION)}; run a scout to migrate`,
+        `database schema is ${version === null ? "unversioned" : `version ${String(version)}`}, code expects ${String(SCHEMA_VERSION)}; run a scout to migrate`,
       );
     }
   }
