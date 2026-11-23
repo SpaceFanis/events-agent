@@ -1,0 +1,6 @@
+{
+  "claude-haiku-5-5 https://openai-builders.devpost.com/": "llm/openai-builders-haiku.json",
+  "claude-haiku-5-5 https://athens-robotics.devpost.com/": "llm/athens-robotics-haiku.json",
+  "claude-sonnet-5-5 https://athens-robotics.devpost.com/": "llm/athens-robotics-sonnet.json",
+  "claude-haiku-5-5 https://berlin-ai-meetup.devpost.com/": "llm/berlin-ai-meetup-haiku.json"
+}

@@ -51,7 +51,46 @@ export interface ScoutedEvent {
   unverifiedFields: string[];
 }
 
-export interface StoredEvent extends ScoutedEvent {
+/**
+ * Fields only the page extraction (M2) can fill. Each is null when the page doesn't state it
+ * or the statement couldn't be verified (then the field name is in `unverifiedFields`).
+ */
+export interface EventDetails {
+  city: string | null;
+  country: string | null;
+  registerSteps: string | null;
+  /** UTC ISO strings, shown in the event's `timezone`. */
+  applyDeadline: string | null;
+  resultsDate: string | null;
+  cost: string | null;
+  travelSupport: string | null;
+  eligibility: string | null;
+  /** Worth score 0–10 against the profile, with a one-line reason. */
+  score: number | null;
+  scoreReason: string | null;
+}
+
+export const NO_DETAILS: EventDetails = {
+  city: null,
+  country: null,
+  registerSteps: null,
+  applyDeadline: null,
+  resultsDate: null,
+  cost: null,
+  travelSupport: null,
+  eligibility: null,
+  score: null,
+  scoreReason: null,
+};
+
+/**
+ * pending_extraction → new (alerted) | below_threshold | closed (deadline passed or ended per the page)
+ * | extraction_failed (the LLM kept failing on this page).
+ */
+export type EventStatus =
+  "pending_extraction" | "new" | "below_threshold" | "closed" | "extraction_failed";
+
+export interface StoredEvent extends ScoutedEvent, EventDetails {
   id: number;
   status: string;
 }

@@ -3,9 +3,25 @@ import { join } from "node:path";
 import { z } from "zod";
 
 /** All source network reads go through this, so replay mode can serve recorded fixtures. */
+/** A non-2xx response; `status` lets callers tell a gone page (404/410) from an outage. */
+export class HttpError extends Error {
+  override name = "HttpError";
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 export interface Http {
   getJson(url: string): Promise<unknown>;
+  /** Fetches a page (HTML) as text. */
+  getText(url: string): Promise<string>;
 }
+
+/** Pages larger than this are refused rather than read into memory. */
+const MAX_PAGE_BYTES = 5_000_000;
 
 export class FetchHttp implements Http {
   constructor(
@@ -18,8 +34,26 @@ export class FetchHttp implements Http {
       headers: { accept: "application/json", "user-agent": "events-agent/1.0" },
       signal: AbortSignal.timeout(this.timeoutMs),
     });
-    if (!response.ok) throw new Error(`GET ${url} failed: HTTP ${String(response.status)}`);
+    if (!response.ok) {
+      throw new HttpError(`GET ${url} failed: HTTP ${String(response.status)}`, response.status);
+    }
     return response.json();
+  }
+
+  async getText(url: string): Promise<string> {
+    const response = await this.fetchFn(url, {
+      headers: { accept: "text/html,application/xhtml+xml", "user-agent": "events-agent/1.0" },
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!response.ok) {
+      throw new HttpError(`GET ${url} failed: HTTP ${String(response.status)}`, response.status);
+    }
+    const declared = Number(response.headers.get("content-length") ?? "0");
+    if (declared > MAX_PAGE_BYTES)
+      throw new Error(`GET ${url}: page too large (${String(declared)} bytes)`);
+    const body = await response.text();
+    if (body.length > MAX_PAGE_BYTES) throw new Error(`GET ${url}: page too large`);
+    return body;
   }
 }
 
@@ -35,11 +69,15 @@ export class ReplayHttp implements Http {
   constructor(private readonly dir: string) {}
 
   async getJson(url: string): Promise<unknown> {
+    return JSON.parse(await this.getText(url));
+  }
+
+  async getText(url: string): Promise<string> {
     this.manifest ??= manifestSchema.parse(
       JSON.parse(await readFile(join(this.dir, "http.json"), "utf8")),
     );
     const file = this.manifest[url];
     if (file === undefined) throw new Error(`replay: no fixture recorded for ${url}`);
-    return JSON.parse(await readFile(join(this.dir, file), "utf8"));
+    return readFile(join(this.dir, file), "utf8");
   }
 }

@@ -1,0 +1,98 @@
+{
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 1900,
+    "output_tokens": 500
+  },
+  "output": {
+    "organiser": {
+      "value": "Berlin AI Community",
+      "evidence": "By Berlin AI Community",
+      "confidence": "high"
+    },
+    "start": {
+      "value": "2027-03-05T18:00",
+      "evidence": "March 5 - 6, 2027, 18:00 - 22:00 each evening (CET).",
+      "confidence": "high"
+    },
+    "end": {
+      "value": "2027-03-06T22:00",
+      "evidence": "March 5 - 6, 2027, 18:00 - 22:00 each evening (CET).",
+      "confidence": "high"
+    },
+    "timezone": {
+      "value": "Europe/Berlin",
+      "evidence": "(CET)",
+      "confidence": "high"
+    },
+    "location": {
+      "value": "Factory Berlin, Berlin, Germany",
+      "evidence": "at Factory Berlin, Berlin, Germany.",
+      "confidence": "high"
+    },
+    "city": {
+      "value": "Berlin",
+      "evidence": "Berlin, Germany",
+      "confidence": "high"
+    },
+    "country": {
+      "value": "Germany",
+      "evidence": "Berlin, Germany",
+      "confidence": "high"
+    },
+    "attendance": {
+      "value": "in_person",
+      "evidence": "community hack night at Factory Berlin",
+      "confidence": "high"
+    },
+    "access": {
+      "value": "open",
+      "evidence": "Everyone welcome, just RSVP.",
+      "confidence": "high"
+    },
+    "register_url": {
+      "value": "https://berlin-ai-meetup.devpost.com/rsvp",
+      "evidence": "RSVP",
+      "confidence": "high"
+    },
+    "register_steps": {
+      "value": null,
+      "evidence": null,
+      "confidence": "high"
+    },
+    "apply_deadline": {
+      "value": null,
+      "evidence": null,
+      "confidence": "high"
+    },
+    "results_date": {
+      "value": null,
+      "evidence": null,
+      "confidence": "high"
+    },
+    "cost": {
+      "value": "Free",
+      "evidence": "Entry is free.",
+      "confidence": "high"
+    },
+    "travel_support": {
+      "value": null,
+      "evidence": null,
+      "confidence": "high"
+    },
+    "prizes": {
+      "value": null,
+      "evidence": null,
+      "confidence": "high"
+    },
+    "eligibility": {
+      "value": null,
+      "evidence": null,
+      "confidence": "high"
+    },
+    "worth": {
+      "score": 6,
+      "reason": "Casual evening meetup abroad; no travel support."
+    }
+  }
+}

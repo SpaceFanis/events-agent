@@ -1,8 +1,15 @@
 import { createClient, type Client, type Row, type Value } from "@libsql/client";
 import { z } from "zod";
 import { eventTypeSchema } from "../config.js";
-import type { AccessType, LocationTier, ScoutedEvent, StoredEvent } from "../types.js";
-import { SCHEMA, SCHEMA_VERSION } from "./schema.js";
+import type {
+  AccessType,
+  EventDetails,
+  EventStatus,
+  LocationTier,
+  ScoutedEvent,
+  StoredEvent,
+} from "../types.js";
+import { MIGRATIONS, SCHEMA, SCHEMA_VERSION } from "./schema.js";
 
 const locationTierSchema = z.enum([
   "online",
@@ -28,6 +35,46 @@ export interface RunStats {
   costUsd: number;
   errors: string[];
 }
+
+/** A cached LLM extraction for one page URL (SPEC: extract once per URL, cached forever). */
+export interface CachedExtraction {
+  url: string;
+  contentHash: string;
+  model: string;
+  rawJson: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export interface LlmCallRecord {
+  runId: number;
+  url: string;
+  model: string;
+  /** ok, or why the output was unusable (refusal, max_tokens, invalid, error). */
+  outcome: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  at: Date;
+}
+
+/** What the extraction stage writes back onto an event. */
+export type ExtractionUpdate = Pick<
+  ScoutedEvent,
+  | "organiser"
+  | "startsAt"
+  | "endsAt"
+  | "timezone"
+  | "locationText"
+  | "isOnline"
+  | "locationTier"
+  | "accessType"
+  | "registerUrl"
+  | "prizes"
+  | "unverifiedFields"
+> &
+  EventDetails;
 
 /** Persistence used by the pipeline. One implementation over libSQL serves Turso, files and :memory:. */
 export interface Store {
@@ -59,6 +106,30 @@ export interface Store {
    * `claimedBefore` (crash or failed write; newer ones may still be in flight in an overlapping run).
    */
   unconfirmedAlerts(claimedBefore: Date): Promise<UnconfirmedAlert[]>;
+  /** Events waiting for page extraction that haven't ended, least recently tried first. */
+  eventsPendingExtraction(now: Date, limit: number): Promise<StoredEvent[]>;
+  getExtraction(url: string): Promise<CachedExtraction | null>;
+  /** Saves (or replaces) the cached extraction for a URL. */
+  saveExtraction(extraction: CachedExtraction, now: Date): Promise<void>;
+  /** Writes extracted fields and the resulting status, if the event is still pending extraction. */
+  applyExtraction(
+    eventId: number,
+    update: ExtractionUpdate,
+    status: EventStatus,
+    now: Date,
+  ): Promise<void>;
+  /** Moves an event to the back of the extraction queue (its page or call failed, not counted). */
+  deferExtraction(eventId: number, now: Date): Promise<void>;
+  /** Counts an unusable LLM answer for the event; after `maxAttempts` it becomes extraction_failed. */
+  failExtraction(eventId: number, maxAttempts: number, now: Date): Promise<void>;
+  recordLlmCall(call: LlmCallRecord): Promise<void>;
+  /**
+   * LLM spend (USD) since `since`: the larger of the per-call log and the per-run totals, so a
+   * failed cost-log write can't hide spend from the monthly cap.
+   */
+  llmSpendSince(since: Date): Promise<number>;
+  noticeSent(key: string): Promise<boolean>;
+  recordNotice(key: string, chatId: string, telegramMessageId: number, now: Date): Promise<void>;
   startRun(now: Date): Promise<number>;
   finishRun(runId: number, stats: RunStats, now: Date): Promise<void>;
   close(): void;
@@ -77,6 +148,14 @@ function textOrNull(row: Row, column: string): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value !== "string") throw new Error(`events.${column}: expected text or null`);
   return value;
+}
+
+function numberOrNull(row: Row, column: string): number | null {
+  const value: Value | undefined = row[column];
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return value;
+  if (typeof value === "bigint") return Number(value);
+  throw new Error(`events.${column}: expected number or null`);
 }
 
 function integer(row: Row, column: string): number {
@@ -108,6 +187,16 @@ function toStoredEvent(row: Row): StoredEvent {
     prizes: textOrNull(row, "prizes"),
     tags: stringArray.parse(JSON.parse(text(row, "tags"))),
     unverifiedFields: stringArray.parse(JSON.parse(text(row, "unverified_fields"))),
+    city: textOrNull(row, "city"),
+    country: textOrNull(row, "country"),
+    registerSteps: textOrNull(row, "register_steps"),
+    applyDeadline: textOrNull(row, "apply_deadline"),
+    resultsDate: textOrNull(row, "results_date"),
+    cost: textOrNull(row, "cost"),
+    travelSupport: textOrNull(row, "travel_support"),
+    eligibility: textOrNull(row, "eligibility"),
+    score: numberOrNull(row, "score"),
+    scoreReason: textOrNull(row, "score_reason"),
   };
 }
 
@@ -129,6 +218,19 @@ export class LibsqlStore implements Store {
       }
       await this.client.batch(
         [...SCHEMA, `PRAGMA user_version = ${String(SCHEMA_VERSION)}`],
+        "write",
+      );
+    } else if (version > 0 && version < SCHEMA_VERSION) {
+      const steps: string[] = [];
+      for (let next = version + 1; next <= SCHEMA_VERSION; next++) {
+        const migration = MIGRATIONS[next];
+        if (migration === undefined)
+          throw new Error(`no migration to schema version ${String(next)}`);
+        steps.push(...migration);
+      }
+      // One write batch: the database is either fully migrated or untouched.
+      await this.client.batch(
+        [...steps, `PRAGMA user_version = ${String(SCHEMA_VERSION)}`],
         "write",
       );
     } else if (version !== SCHEMA_VERSION) {
@@ -181,10 +283,11 @@ export class LibsqlStore implements Store {
        WHERE e.status = 'new'
          AND e.alert_attempts < ?
          AND (e.ends_at IS NULL OR e.ends_at >= ?)
+         AND (e.apply_deadline IS NULL OR e.apply_deadline >= ?)
          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.event_id = e.id AND m.kind = 'alert')
        ORDER BY e.id
        LIMIT ?`,
-      args: [maxAttempts, now.toISOString(), limit],
+      args: [maxAttempts, now.toISOString(), now.toISOString(), limit],
     });
     return result.rows.map(toStoredEvent);
   }
@@ -244,6 +347,163 @@ export class LibsqlStore implements Store {
       state: text(row, "state"),
       claimedAt: text(row, "claimed_at"),
     }));
+  }
+
+  async eventsPendingExtraction(now: Date, limit: number): Promise<StoredEvent[]> {
+    const result = await this.client.execute({
+      sql: `SELECT * FROM events
+            WHERE status = 'pending_extraction' AND (ends_at IS NULL OR ends_at >= ?)
+            ORDER BY updated_at, id LIMIT ?`,
+      args: [now.toISOString(), limit],
+    });
+    return result.rows.map(toStoredEvent);
+  }
+
+  async getExtraction(url: string): Promise<CachedExtraction | null> {
+    const result = await this.client.execute({
+      sql: `SELECT * FROM extractions WHERE url = ?`,
+      args: [url],
+    });
+    const row = result.rows[0];
+    if (row === undefined) return null;
+    return {
+      url: text(row, "url"),
+      contentHash: text(row, "content_hash"),
+      model: text(row, "model"),
+      rawJson: text(row, "raw_json"),
+      inputTokens: integer(row, "input_tokens"),
+      outputTokens: integer(row, "output_tokens"),
+      costUsd: numberOrNull(row, "cost_usd") ?? 0,
+    };
+  }
+
+  async saveExtraction(extraction: CachedExtraction, now: Date): Promise<void> {
+    await this.client.execute({
+      sql: `INSERT INTO extractions (url, content_hash, model, raw_json, input_tokens, output_tokens, cost_usd, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (url) DO UPDATE SET content_hash = excluded.content_hash, model = excluded.model,
+              raw_json = excluded.raw_json, input_tokens = excluded.input_tokens,
+              output_tokens = excluded.output_tokens, cost_usd = excluded.cost_usd, created_at = excluded.created_at`,
+      args: [
+        extraction.url,
+        extraction.contentHash,
+        extraction.model,
+        extraction.rawJson,
+        extraction.inputTokens,
+        extraction.outputTokens,
+        extraction.costUsd,
+        now.toISOString(),
+      ],
+    });
+  }
+
+  async applyExtraction(
+    eventId: number,
+    update: ExtractionUpdate,
+    status: EventStatus,
+    now: Date,
+  ): Promise<void> {
+    await this.client.execute({
+      sql: `UPDATE events SET organiser = ?, starts_at = ?, ends_at = ?, timezone = ?, location_text = ?,
+              city = ?, country = ?, is_online = ?, location_tier = ?, access_type = ?, register_url = ?,
+              register_steps = ?, apply_deadline = ?, results_date = ?, cost = ?, travel_support = ?,
+              prizes = ?, eligibility = ?, score = ?, score_reason = ?, unverified_fields = ?,
+              status = ?, updated_at = ?
+            WHERE id = ? AND status = 'pending_extraction'`,
+      args: [
+        update.organiser,
+        update.startsAt,
+        update.endsAt,
+        update.timezone,
+        update.locationText,
+        update.city,
+        update.country,
+        update.isOnline ? 1 : 0,
+        update.locationTier,
+        update.accessType,
+        update.registerUrl,
+        update.registerSteps,
+        update.applyDeadline,
+        update.resultsDate,
+        update.cost,
+        update.travelSupport,
+        update.prizes,
+        update.eligibility,
+        update.score,
+        update.scoreReason,
+        JSON.stringify(update.unverifiedFields),
+        status,
+        now.toISOString(),
+        eventId,
+      ],
+    });
+  }
+
+  async deferExtraction(eventId: number, now: Date): Promise<void> {
+    await this.client.execute({
+      sql: `UPDATE events SET updated_at = ? WHERE id = ? AND status = 'pending_extraction'`,
+      args: [now.toISOString(), eventId],
+    });
+  }
+
+  async failExtraction(eventId: number, maxAttempts: number, now: Date): Promise<void> {
+    await this.client.execute({
+      sql: `UPDATE events SET extract_attempts = extract_attempts + 1,
+              status = CASE WHEN extract_attempts + 1 >= ? THEN 'extraction_failed' ELSE status END,
+              updated_at = ?
+            WHERE id = ? AND status = 'pending_extraction'`,
+      args: [maxAttempts, now.toISOString(), eventId],
+    });
+  }
+
+  async recordLlmCall(call: LlmCallRecord): Promise<void> {
+    await this.client.execute({
+      sql: `INSERT INTO llm_calls (run_id, url, model, outcome, input_tokens, output_tokens, cost_usd, at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        call.runId,
+        call.url,
+        call.model,
+        call.outcome,
+        call.inputTokens,
+        call.outputTokens,
+        call.costUsd,
+        call.at.toISOString(),
+      ],
+    });
+  }
+
+  async llmSpendSince(since: Date): Promise<number> {
+    const result = await this.client.execute({
+      sql: `SELECT MAX(
+              (SELECT COALESCE(SUM(cost_usd), 0) FROM llm_calls WHERE at >= ?),
+              (SELECT COALESCE(SUM(cost_usd), 0) FROM runs WHERE started_at >= ?)
+            ) AS total`,
+      args: [since.toISOString(), since.toISOString()],
+    });
+    const row = result.rows[0];
+    return row === undefined ? 0 : (numberOrNull(row, "total") ?? 0);
+  }
+
+  async noticeSent(key: string): Promise<boolean> {
+    const result = await this.client.execute({
+      sql: `SELECT 1 FROM messages WHERE notice_key = ?`,
+      args: [key],
+    });
+    return result.rows.length > 0;
+  }
+
+  async recordNotice(
+    key: string,
+    chatId: string,
+    telegramMessageId: number,
+    now: Date,
+  ): Promise<void> {
+    await this.client.execute({
+      sql: `INSERT INTO messages (chat_id, kind, state, telegram_message_id, claimed_at, sent_at, notice_key)
+            VALUES (?, 'notice', 'sent', ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+      args: [chatId, telegramMessageId, now.toISOString(), now.toISOString(), key],
+    });
   }
 
   async startRun(now: Date): Promise<number> {

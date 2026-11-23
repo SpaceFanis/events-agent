@@ -1,3 +1,6 @@
 {
-  "https://devpost.com/api/hackathons?status[]=upcoming&status[]=open&page=1": "devpost-page-1.json"
+  "https://devpost.com/api/hackathons?status[]=upcoming&status[]=open&page=1": "devpost-page-1.json",
+  "https://openai-builders.devpost.com/": "pages/openai-builders.html",
+  "https://athens-robotics.devpost.com/": "pages/athens-robotics.html",
+  "https://berlin-ai-meetup.devpost.com/": "pages/berlin-ai-meetup.html"
 }

@@ -9,7 +9,7 @@ import {
   locationTier,
   normalizeItem,
 } from "../src/normalize.js";
-import type { SourceItem } from "../src/types.js";
+import { NO_DETAILS, type SourceItem } from "../src/types.js";
 
 const criteria: Criteria = parseCriteria(`
 profile: x
@@ -140,12 +140,13 @@ describe("applyRules", () => {
 
 describe("formatAlert", () => {
   it("escapes HTML from source data and lists unverified fields", () => {
-    const html = formatAlert(
-      normalizeItem(
+    const html = formatAlert({
+      ...normalizeItem(
         item({ title: "AI <Hack> & Co", prizes: "$1,000", unverifiedFields: ["access"] }),
         criteria,
       ),
-    );
+      ...NO_DETAILS,
+    });
     expect(html).toContain("<b>AI &lt;Hack&gt; &amp; Co</b>");
     expect(html).toContain("🗓 10 Dec 2026 – 12 Dec 2026 (Europe/Athens)");
     expect(html).toContain("🏆 Prizes: $1,000");
@@ -154,7 +155,10 @@ describe("formatAlert", () => {
 
   it("says when dates are unknown instead of guessing", () => {
     expect(
-      formatAlert(normalizeItem(item({ startDate: null, endDate: null }), criteria)),
+      formatAlert({
+        ...normalizeItem(item({ startDate: null, endDate: null }), criteria),
+        ...NO_DETAILS,
+      }),
     ).toContain("⚠️ dates unknown");
   });
 });
