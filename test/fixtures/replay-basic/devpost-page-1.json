@@ -1,0 +1,59 @@
+{
+  "hackathons": [
+    {
+      "id": 900001,
+      "title": "Open AI Builders Hackathon",
+      "displayed_location": { "icon": "globe", "location": "Online" },
+      "open_state": "open",
+      "url": "https://openai-builders.devpost.com/?utm_source=devpost",
+      "submission_period_dates": "Dec 10, 2026 - Jan 15, 2027",
+      "themes": [{ "id": 6, "name": "Machine Learning/AI" }],
+      "prize_amount": "$<span data-currency-value>5,000</span>",
+      "organization_name": "OpenBuild",
+      "invite_only": false
+    },
+    {
+      "id": 900002,
+      "title": "Athens Robotics Challenge 2027",
+      "displayed_location": { "icon": "map-marker", "location": "Athens, Greece" },
+      "open_state": "upcoming",
+      "url": "https://athens-robotics.devpost.com/",
+      "submission_period_dates": "Feb 20 - 22, 2027",
+      "themes": [
+        { "id": 30, "name": "Robotic Process Automation" },
+        { "id": 11, "name": "Hardware" }
+      ],
+      "prize_amount": "€<span data-currency-value>3,000</span>",
+      "organization_name": "Athena Robotics Lab",
+      "invite_only": false
+    },
+    {
+      "id": 900003,
+      "title": "AI x Crypto Sprint",
+      "displayed_location": { "icon": "globe", "location": "Online" },
+      "open_state": "open",
+      "url": "https://ai-crypto-sprint.devpost.com/",
+      "submission_period_dates": "Dec 05 - 20, 2026",
+      "themes": [
+        { "id": 2, "name": "Blockchain" },
+        { "id": 6, "name": "Machine Learning/AI" }
+      ],
+      "prize_amount": "$<span data-currency-value>20,000</span>",
+      "organization_name": "ChainCo",
+      "invite_only": false
+    },
+    {
+      "id": 900004,
+      "title": "Berlin AI Meetup Hack",
+      "displayed_location": { "icon": "map-marker", "location": "Berlin, Germany" },
+      "open_state": "upcoming",
+      "url": "https://berlin-ai-meetup.devpost.com/",
+      "submission_period_dates": "Mar 05 - 06, 2027",
+      "themes": [{ "id": 6, "name": "Machine Learning/AI" }],
+      "prize_amount": "$<span data-currency-value>0</span>",
+      "organization_name": "Berlin AI Community",
+      "invite_only": false
+    }
+  ],
+  "meta": { "total_count": 4, "per_page": 9, "fuzzy": false }
+}

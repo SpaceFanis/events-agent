@@ -1,0 +1,135 @@
+{
+  "hackathons": [
+    {
+      "id": 31667,
+      "title": "Kiroween 2026",
+      "displayed_location": {
+        "icon": "globe",
+        "location": "Online"
+      },
+      "open_state": "open",
+      "thumbnail_url": "//d112y698adiu2z.cloudfront.net/photos/production/challenge_thumbnails/005/585/149/datas/medium_square.png",
+      "analytics_identifier": "Kiroween 2026 (31667)",
+      "url": "https://kiroween.devpost.com/",
+      "time_left_to_submission": "11 days left",
+      "submission_period_dates": "Oct 30 - Dec 04, 2026",
+      "themes": [
+        {
+          "id": 23,
+          "name": "Beginner Friendly"
+        },
+        {
+          "id": 6,
+          "name": "Machine Learning/AI"
+        },
+        {
+          "id": 22,
+          "name": "Open Ended"
+        }
+      ],
+      "prize_amount": "$<span data-currency-value>100,000</span>",
+      "prizes_counts": {
+        "cash": 15,
+        "other": 2
+      },
+      "registrations_count": 18566,
+      "featured": false,
+      "organization_name": "Kiro",
+      "winners_announced": false,
+      "submission_gallery_url": "https://kiroween.devpost.com/project-gallery",
+      "start_a_submission_url": "https://kiroween.devpost.com/challenges/start_a_submission",
+      "invite_only": false,
+      "eligibility_requirement_invite_only_description": null,
+      "managed_by_devpost_badge": true
+    },
+    {
+      "id": 31808,
+      "title": "#BuildHybridAI 2026",
+      "displayed_location": {
+        "icon": "globe",
+        "location": "Online"
+      },
+      "open_state": "open",
+      "thumbnail_url": "//d112y698adiu2z.cloudfront.net/photos/production/challenge_thumbnails/005/784/130/datas/medium_square.png",
+      "analytics_identifier": "#BuildHybridAI 2026 (31808)",
+      "url": "https://firebasehybridaihackathon.devpost.com/",
+      "time_left_to_submission": "7 days left",
+      "submission_period_dates": "Nov 11 - 30, 2026",
+      "themes": [
+        {
+          "id": 6,
+          "name": "Machine Learning/AI"
+        },
+        {
+          "id": 26,
+          "name": "Mobile"
+        },
+        {
+          "id": 25,
+          "name": "Web"
+        }
+      ],
+      "prize_amount": "$<span data-currency-value>30,000</span>",
+      "prizes_counts": {
+        "cash": 6,
+        "other": 0
+      },
+      "registrations_count": 4550,
+      "featured": true,
+      "organization_name": "Google",
+      "winners_announced": false,
+      "submission_gallery_url": "https://firebasehybridaihackathon.devpost.com/project-gallery",
+      "start_a_submission_url": "https://firebasehybridaihackathon.devpost.com/challenges/start_a_submission",
+      "invite_only": false,
+      "eligibility_requirement_invite_only_description": null,
+      "managed_by_devpost_badge": true
+    },
+    {
+      "id": 32026,
+      "title": "Open Agentic Web Challenge",
+      "displayed_location": {
+        "icon": "globe",
+        "location": "Online"
+      },
+      "open_state": "open",
+      "thumbnail_url": "//d112y698adiu2z.cloudfront.net/photos/production/challenge_thumbnails/005/839/029/datas/medium_square.png",
+      "analytics_identifier": "Open Agentic Web Challenge (32026)",
+      "url": "https://cognizant-agenticweb.devpost.com/",
+      "time_left_to_submission": "about 2 months left",
+      "submission_period_dates": "Nov 11, 2026 - Jan 11, 2027",
+      "themes": [
+        {
+          "id": 6,
+          "name": "Machine Learning/AI"
+        },
+        {
+          "id": 25,
+          "name": "Web"
+        },
+        {
+          "id": 13,
+          "name": "Social Good"
+        }
+      ],
+      "prize_amount": "$<span data-currency-value>10,000</span>",
+      "prizes_counts": {
+        "cash": 3,
+        "other": 1
+      },
+      "registrations_count": 1704,
+      "featured": false,
+      "organization_name": "Cognizant",
+      "winners_announced": false,
+      "submission_gallery_url": "https://cognizant-agenticweb.devpost.com/project-gallery",
+      "start_a_submission_url": "https://cognizant-agenticweb.devpost.com/challenges/start_a_submission",
+      "invite_only": false,
+      "eligibility_requirement_invite_only_description": null,
+      "managed_by_devpost_badge": false
+    }
+  ],
+  "meta": {
+    "total_count": 3,
+    "per_page": 9,
+    "fuzzy": false
+  }
+}
