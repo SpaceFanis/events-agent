@@ -124,10 +124,18 @@ describe("scout pipeline in replay mode", () => {
         const failed = await runPipeline({ ...deps, messenger: down });
         expect(failed.alertsSent).toBe(0);
         expect(failed.errors).toHaveLength(1);
+        // Telegram is the only interface, so the CLI exits non-zero and the cron run goes red.
+        expect(failed.failed).toBe(true);
       }
 
       const retried = await runPipeline({ ...deps, messenger: realMessenger });
-      expect(retried).toMatchObject({ itemsNew: 0, llmCalls: 0, alertsSent: 2, errors: [] });
+      expect(retried).toMatchObject({
+        itemsNew: 0,
+        llmCalls: 0,
+        alertsSent: 2,
+        errors: [],
+        failed: false,
+      });
       expect((await runPipeline(deps)).alertsSent).toBe(0);
     } finally {
       deps.store.close();

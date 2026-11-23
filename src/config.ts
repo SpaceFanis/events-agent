@@ -113,7 +113,11 @@ export function parseCriteria(text: string): Criteria {
     raw = parse(text);
   } catch (error) {
     if (error instanceof YAMLError) {
-      throw new ConfigError(`criteria.yaml is not valid YAML: ${error.message}`);
+      // Position only: yaml's message quotes the source lines, and in Actions that would put
+      // fragments of the profile (or a feed URL with a token) into a public log.
+      const at = error.linePos?.[0];
+      const where = at ? ` at line ${String(at.line)}, column ${String(at.col)}` : "";
+      throw new ConfigError(`criteria.yaml is not valid YAML (${error.code})${where}`);
     }
     throw error;
   }

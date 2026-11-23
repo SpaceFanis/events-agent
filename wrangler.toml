@@ -1,0 +1,11 @@
+# Cloudflare Worker for Telegram button presses (SPEC core flow step 2).
+# Secrets are set with `npx wrangler secret put <NAME>` (see docs/DEPLOY.md), never here.
+name = "events-agent-webhook"
+main = "worker/index.ts"
+compatibility_date = "2026-11-01"
+# No nodejs_compat: the Worker bundle has no Node imports (`npm run worker:bundle` proves it).
+workers_dev = true
+send_metrics = false
+
+[observability]
+enabled = true

@@ -9,7 +9,6 @@ import {
   FakeCalendar,
   GoogleCalendar,
   recordedCalendar,
-  UnconfiguredCalendar,
   type BusyEvent,
   type CalendarClient,
   type CalendarStatus,
@@ -41,6 +40,11 @@ export interface RunSummary {
   remindersSent: number;
   costUsd: number;
   errors: string[];
+  /**
+   * A systemic failure (Telegram unreachable, or the run row could not be written): the CLI exits
+   * non-zero so the scheduled run fails and GitHub emails me. Source or calendar errors don't count.
+   */
+  failed: boolean;
 }
 
 export interface PipelineDeps {
@@ -83,6 +87,7 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
   let itemsNew = 0;
   let alertsSent = 0;
   let remindersSent = 0;
+  let failed = false;
   // Filled in by the extraction stage as it goes, so failed runs still record their spend.
   const llm = { llmCalls: 0, costUsd: 0, extracted: 0 };
 
@@ -212,6 +217,7 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
         // Outage or bad config: no other message would get through either. Retry everything next run.
         if (failure === "systemic") {
           telegramDown = true;
+          failed = true;
           break;
         }
         continue;
@@ -221,7 +227,11 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
       await store.completeAlert(claim, sent.messageId, deps.now());
     }
 
-    if (!telegramDown) remindersSent = await sendReminders(deps, errors);
+    if (!telegramDown) {
+      remindersSent = await sendReminders(deps, errors, () => {
+        failed = true;
+      });
+    }
   } catch (error) {
     errors.push(`pipeline: ${message(error)}`);
     throw error;
@@ -242,6 +252,7 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
       )
       .catch((error: unknown) => {
         errors.push(`finishRun: ${message(error)}`);
+        failed = true;
       });
   }
 
@@ -256,6 +267,7 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
     remindersSent,
     costUsd: Math.round(llm.costUsd * 1e6) / 1e6,
     errors,
+    failed,
   };
 }
 
@@ -288,13 +300,10 @@ export async function createReplayDeps(
 }
 
 /**
- * Google Calendar is optional until M6: without credentials alerts say "calendar: couldn't check".
- * A partial setup is a mistake, not a choice, so it stops the run.
+ * Google Calendar is required in production (M6): a missing credential stops the run instead of
+ * silently sending every alert with "calendar: couldn't check".
  */
 function calendarFromEnv(env: NodeJS.ProcessEnv, criteria: Criteria): CalendarClient {
-  const names = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"] as const;
-  const set = names.filter((name) => (env[name] ?? "") !== "");
-  if (set.length === 0) return new UnconfiguredCalendar();
   return new GoogleCalendar(
     {
       clientId: requireEnv(env, "GOOGLE_CLIENT_ID"),
@@ -322,6 +331,14 @@ export async function createLiveDeps(
   const dbUrl = requireEnv(env, "TURSO_DATABASE_URL");
   const authToken = env.TURSO_AUTH_TOKEN;
   const apiKey = requireEnv(env, "ANTHROPIC_API_KEY");
+  // A local DB on a runner starts empty every day: everything is re-alerted and re-paid, and the
+  // monthly cost cap never sees earlier runs.
+  if (env.GITHUB_ACTIONS === "true" && /^(file:|:memory:)/.test(dbUrl)) {
+    throw new Error(
+      "TURSO_DATABASE_URL must be a remote database in GitHub Actions, not a local one",
+    );
+  }
+  const calendar = calendarFromEnv(env, criteria);
   const http = new FetchHttp();
   const now = (): Date => new Date();
   return {
@@ -331,7 +348,7 @@ export async function createLiveDeps(
     http,
     llm: new AnthropicLlm(new Anthropic({ apiKey, timeout: 120_000 })),
     messenger: new TelegramMessenger(botToken, chatId),
-    calendar: calendarFromEnv(env, criteria),
+    calendar,
     now,
     mode: "live",
   };

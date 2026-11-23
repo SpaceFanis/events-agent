@@ -644,4 +644,28 @@ describe("worker bundle", () => {
     expect(seen.has("src/webhook.ts")).toBe(true);
     expect(nodeImports).toEqual([]);
   });
+
+  it("refuses to run without the Google credentials (required in production)", async () => {
+    const { default: worker } = await import("../worker/index.js");
+    const env = {
+      TELEGRAM_BOT_TOKEN: "t",
+      TELEGRAM_CHAT_ID: CHAT,
+      TELEGRAM_WEBHOOK_SECRET: SECRET,
+      TURSO_DATABASE_URL: "libsql://unused.invalid",
+      GOOGLE_CLIENT_ID: "id",
+      GOOGLE_CLIENT_SECRET: "secret",
+    };
+    const errors: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(...args);
+    };
+    try {
+      const response = await worker.fetch(callbackRequest(1, "g:1", Number(CHAT)), env);
+      expect(response.status).toBe(500);
+    } finally {
+      console.error = original;
+    }
+    expect(errors).toEqual(["worker misconfigured: missing GOOGLE_REFRESH_TOKEN"]);
+  });
 });
