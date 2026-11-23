@@ -126,6 +126,13 @@ export function formatDateTime(utcIso: string, timeZone: string): string {
   return `${formatDate(utcIso, timeZone)}, ${time}`;
 }
 
+/** The calendar date `days` after (or, negative, before) `date`. */
+export function addDays(date: IsoDate, days: number): IsoDate {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 /** The calendar date ("YYYY-MM-DD") of a UTC instant in `timeZone`. */
 export function localDate(utcIso: string, timeZone: string): IsoDate {
   return new Intl.DateTimeFormat("en-CA", {

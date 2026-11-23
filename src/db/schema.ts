@@ -3,7 +3,19 @@
  * Times are UTC ISO strings; `events.timezone` holds the event's IANA zone.
  */
 /** Bump on any schema change and add a migration; migrate() refuses unknown versions. */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
+
+/**
+ * Consecutive failed fetches per source adapter (by its configured name). Reset by a success;
+ * `failing_since` names the current streak, so each streak sends at most one "source broken" notice.
+ */
+const SOURCE_HEALTH = `CREATE TABLE IF NOT EXISTS source_health (
+    name TEXT PRIMARY KEY,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    failing_since TEXT,
+    last_error TEXT,
+    updated_at TEXT NOT NULL
+  )`;
 
 /** Small key/value settings the cron publishes for the Worker (it has no criteria.yaml). */
 const SETTINGS = `CREATE TABLE IF NOT EXISTS settings (
@@ -129,6 +141,7 @@ export const SCHEMA: readonly string[] = [
   LLM_CALLS_INDEX,
   ACTIONS_INDEX,
   SETTINGS,
+  SOURCE_HEALTH,
 ];
 
 /** Statements that bring a database from version N-1 up to N, keyed by N. */
@@ -150,4 +163,5 @@ export const MIGRATIONS: Readonly<Record<number, readonly string[]>> = {
     ACTIONS_INDEX,
     SETTINGS,
   ],
+  4: [SOURCE_HEALTH],
 };

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse, YAMLError } from "yaml";
 import { z } from "zod";
 import { eventTypeSchema } from "./event-type.js";
+import { feedName } from "./sources/feed.js";
 
 function isValidTimeZone(timeZone: string): boolean {
   try {
@@ -15,6 +16,16 @@ function isValidTimeZone(timeZone: string): boolean {
 export { eventTypeSchema, type EventType } from "./event-type.js";
 
 const minScore = z.number().min(0).max(10);
+
+/**
+ * Feed sources (Luma, RSS, ICS): their URL, a name (required: logs and Telegram notices use it, never
+ * the URL, which may hold a secret token), and the type for items whose title names none.
+ */
+const feedOptions = {
+  url: z.url(),
+  name: z.string().trim().min(1),
+  type: eventTypeSchema.optional(),
+};
 
 export const criteriaSchema = z.strictObject({
   profile: z.string().min(1),
@@ -57,13 +68,37 @@ export const criteriaSchema = z.strictObject({
       z.discriminatedUnion("kind", [
         z.strictObject({ kind: z.literal("devpost") }),
         z.strictObject({ kind: z.literal("mlh") }),
-        // One entry per Luma calendar or city page (its ICS/page URL).
-        z.strictObject({ kind: z.literal("luma"), url: z.url(), name: z.string().optional() }),
-        z.strictObject({ kind: z.literal("rss"), url: z.url() }),
-        z.strictObject({ kind: z.literal("ics"), url: z.url() }),
+        // One entry per Luma calendar or city feed (its ICS URL).
+        z.strictObject({ kind: z.literal("luma"), ...feedOptions }),
+        z.strictObject({ kind: z.literal("rss"), ...feedOptions }),
+        z.strictObject({ kind: z.literal("ics"), ...feedOptions }),
       ]),
     )
-    .min(1),
+    .min(1)
+    .superRefine((sources, ctx) => {
+      // The name keys each source's failure streak, so two entries must never share one; the same
+      // feed listed twice would fetch twice. Messages show names only, never feed URLs.
+      const names = new Set<string>();
+      const urls = new Set<string>();
+      for (const [index, source] of sources.entries()) {
+        const key = "url" in source ? feedName(source.kind, source) : source.kind;
+        if (names.has(key)) {
+          ctx.addIssue({ code: "custom", path: [index], message: `duplicate source "${key}"` });
+        }
+        names.add(key);
+        if ("url" in source) {
+          const urlKey = `${source.kind} ${source.url}`;
+          if (urls.has(urlKey)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [index],
+              message: `"${key}" repeats another feed's URL`,
+            });
+          }
+          urls.add(urlKey);
+        }
+      }
+    }),
 });
 
 export type Criteria = z.infer<typeof criteriaSchema>;

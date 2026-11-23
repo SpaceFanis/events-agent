@@ -19,6 +19,44 @@ describe("parseCriteria", () => {
     expect(() => parseCriteria("profile: [unclosed")).toThrow(/not valid YAML/);
   });
 
+  it("takes feed sources with a required name and optional type, and refuses duplicates", () => {
+    const base = `profile: x\ninterests: [ai]\neventTypes: [hackathon]\nhome: {city: A, country: B, timezone: UTC}\n`;
+    const criteria = parseCriteria(
+      `${base}sources:\n  - {kind: luma, url: "https://api.lu.ma/ics/get?entity=calendar&id=cal-1", name: AI Athens}\n  - {kind: rss, url: "https://example.org/feed", name: Feed, type: fellowship}\n  - {kind: ics, url: "https://example.org/feed", name: Feed}\n`,
+    );
+    expect(criteria.sources).toEqual([
+      {
+        kind: "luma",
+        url: "https://api.lu.ma/ics/get?entity=calendar&id=cal-1",
+        name: "AI Athens",
+      },
+      { kind: "rss", url: "https://example.org/feed", name: "Feed", type: "fellowship" },
+      { kind: "ics", url: "https://example.org/feed", name: "Feed" },
+    ]);
+    // A feed URL may hold a token, so a name is required and errors never quote the URL.
+    expect(() =>
+      parseCriteria(`${base}sources: [{kind: ics, url: "https://a.org/private-tok"}]\n`),
+    ).toThrow(ConfigError);
+    expect(() =>
+      parseCriteria(
+        `${base}sources: [{kind: rss, url: "https://a.org/f", name: A}, {kind: rss, url: "https://a.org/g", name: A}]\n`,
+      ),
+    ).toThrow(/duplicate source "rss: A"/);
+    expect(() =>
+      parseCriteria(
+        `${base}sources: [{kind: rss, url: "https://a.org/tok", name: A}, {kind: rss, url: "https://a.org/tok", name: B}]\n`,
+      ),
+    ).toThrow(/"rss: B" repeats another feed's URL/);
+    expect(() => parseCriteria(`${base}sources: [{kind: mlh}, {kind: mlh}]\n`)).toThrow(
+      /duplicate source "mlh"/,
+    );
+    expect(() =>
+      parseCriteria(
+        `${base}sources: [{kind: rss, url: "https://a.org/f", name: A, type: party}]\n`,
+      ),
+    ).toThrow(ConfigError);
+  });
+
   it("rejects an invalid time zone", () => {
     const badTz = `profile: x\ninterests: [ai]\neventTypes: [hackathon]\nhome: {city: Athens, country: Greece, timezone: Europe/Athen}\nsources: [{kind: devpost}]\n`;
     expect(() => parseCriteria(badTz)).toThrow(/IANA time zone/);

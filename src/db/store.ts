@@ -23,6 +23,19 @@ const accessTypeSchema = z.enum(["open", "application", "invite"] satisfies Acce
 
 export type MessageKind = "alert" | "reminder" | "nudge" | "notice";
 
+/** A source adapter's failure streak after this run. */
+export interface SourceHealth {
+  consecutiveFailures: number;
+  /** When the current streak started (null after a success); names the streak's single notice. */
+  failingSince: string | null;
+}
+
+/**
+ * Deadline reminders for `watching` events (3 days and 1 day before) and the one-off
+ * "did you get results?" nudge for `awaiting_result` events.
+ */
+export type ReminderKind = "deadline_3d" | "deadline_1d" | "results";
+
 export interface UnconfirmedAlert {
   eventId: number;
   state: string;
@@ -134,6 +147,31 @@ export interface Store {
   recordNotice(key: string, chatId: string, telegramMessageId: number, now: Date): Promise<void>;
   startRun(now: Date): Promise<number>;
   finishRun(runId: number, stats: RunStats, now: Date): Promise<void>;
+  /** Records one fetch of a source (`error` null on success) and returns its failure streak. */
+  recordSourceRun(name: string, error: string | null, now: Date): Promise<SourceHealth>;
+
+  // Reminders and results nudges (same cron).
+  /**
+   * `watching` events whose deadline (or, without one, start) is still ahead, and `awaiting_result`
+   * events whose results date has passed and that haven't ended.
+   */
+  eventsForReminders(now: Date): Promise<ActionableEvent[]>;
+  /**
+   * Claims one reminder before sending it (unique on event, kind and due time). Returns the row id,
+   * or null if it was already claimed: sent, in flight in an overlapping run, or possibly delivered.
+   */
+  claimReminder(eventId: number, kind: ReminderKind, dueAt: string): Promise<number | null>;
+  /** Marks a claimed reminder as sent and logs its Telegram message. */
+  completeReminder(
+    reminderId: number,
+    eventId: number,
+    kind: ReminderKind,
+    chatId: string,
+    telegramMessageId: number,
+    sentAt: Date,
+  ): Promise<void>;
+  /** Drops an unsent claim so the next run retries it (Telegram was down). */
+  releaseReminder(reminderId: number): Promise<void>;
 
   // Button presses (Worker webhook).
   /** Throws unless the database is at exactly this code's schema version. Never migrates. */
@@ -229,6 +267,14 @@ function toStoredEvent(row: Row): StoredEvent {
     eligibility: textOrNull(row, "eligibility"),
     score: numberOrNull(row, "score"),
     scoreReason: textOrNull(row, "score_reason"),
+  };
+}
+
+function toActionableEvent(row: Row): ActionableEvent {
+  return {
+    ...toStoredEvent(row),
+    calendarEventId: textOrNull(row, "calendar_event_id"),
+    calendarState: calendarStateSchema.nullable().parse(textOrNull(row, "calendar_state")),
   };
 }
 
@@ -570,6 +616,96 @@ export class LibsqlStore implements Store {
     });
   }
 
+  async recordSourceRun(name: string, error: string | null, now: Date): Promise<SourceHealth> {
+    const at = now.toISOString();
+    // On conflict, bare column names are the stored row's values.
+    const result = await this.client.execute(
+      error === null
+        ? {
+            sql: `INSERT INTO source_health (name, consecutive_failures, failing_since, last_error, updated_at)
+                  VALUES (?, 0, NULL, NULL, ?)
+                  ON CONFLICT (name) DO UPDATE SET consecutive_failures = 0, failing_since = NULL,
+                    last_error = NULL, updated_at = excluded.updated_at
+                  RETURNING consecutive_failures, failing_since`,
+            args: [name, at],
+          }
+        : {
+            sql: `INSERT INTO source_health (name, consecutive_failures, failing_since, last_error, updated_at)
+                  VALUES (?, 1, ?, ?, ?)
+                  ON CONFLICT (name) DO UPDATE SET consecutive_failures = consecutive_failures + 1,
+                    failing_since = COALESCE(failing_since, excluded.failing_since),
+                    last_error = excluded.last_error, updated_at = excluded.updated_at
+                  RETURNING consecutive_failures, failing_since`,
+            args: [name, at, error, at],
+          },
+    );
+    const row = result.rows[0];
+    if (row === undefined) throw new Error("source_health upsert returned no row");
+    return {
+      consecutiveFailures: integer(row, "consecutive_failures"),
+      failingSince: textOrNull(row, "failing_since"),
+    };
+  }
+
+  async eventsForReminders(now: Date): Promise<ActionableEvent[]> {
+    const at = now.toISOString();
+    const result = await this.client.execute({
+      sql: `SELECT * FROM events
+            WHERE (status = 'watching' AND COALESCE(apply_deadline, starts_at) > ?)
+               OR (status = 'awaiting_result' AND results_date IS NOT NULL AND results_date <= ?
+                   AND (ends_at IS NULL OR ends_at >= ?))
+            ORDER BY id`,
+      args: [at, at, at],
+    });
+    return result.rows.map(toActionableEvent);
+  }
+
+  async claimReminder(eventId: number, kind: ReminderKind, dueAt: string): Promise<number | null> {
+    const result = await this.client.execute({
+      sql: `INSERT INTO reminders (event_id, due_at, kind) VALUES (?, ?, ?)
+            ON CONFLICT DO NOTHING RETURNING id`,
+      args: [eventId, dueAt, kind],
+    });
+    const row = result.rows[0];
+    return row === undefined ? null : integer(row, "id");
+  }
+
+  async completeReminder(
+    reminderId: number,
+    eventId: number,
+    kind: ReminderKind,
+    chatId: string,
+    telegramMessageId: number,
+    sentAt: Date,
+  ): Promise<void> {
+    const at = sentAt.toISOString();
+    await this.client.batch(
+      [
+        { sql: `UPDATE reminders SET sent_at = ? WHERE id = ?`, args: [at, reminderId] },
+        {
+          sql: `INSERT INTO messages (event_id, telegram_message_id, chat_id, kind, state, claimed_at, sent_at)
+                VALUES (?, ?, ?, ?, 'sent', ?, ?)`,
+          args: [
+            eventId,
+            telegramMessageId,
+            chatId,
+            kind === "results" ? "nudge" : "reminder",
+            at,
+            at,
+          ],
+        },
+      ],
+      "write",
+    );
+  }
+
+  async releaseReminder(reminderId: number): Promise<void> {
+    await this.client.execute({
+      sql: `DELETE FROM reminders WHERE id = ? AND sent_at IS NULL`,
+      args: [reminderId],
+    });
+  }
+
   async checkSchema(): Promise<void> {
     const row = (await this.client.execute("PRAGMA user_version")).rows[0];
     const version = row === undefined ? null : integer(row, "user_version");
@@ -586,12 +722,7 @@ export class LibsqlStore implements Store {
       args: [eventId],
     });
     const row = result.rows[0];
-    if (row === undefined) return null;
-    return {
-      ...toStoredEvent(row),
-      calendarEventId: textOrNull(row, "calendar_event_id"),
-      calendarState: calendarStateSchema.nullable().parse(textOrNull(row, "calendar_state")),
-    };
+    return row === undefined ? null : toActionableEvent(row);
   }
 
   async transitionStatus(

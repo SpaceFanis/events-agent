@@ -520,8 +520,12 @@ describe("LLM cost and caps", () => {
   });
 });
 
-/** Undoes what schema version 3 added (M4), leaving the version-2 shape. */
+/** Undoes what schema version 4 added (M5), leaving the version-3 shape. */
+const V4_ADDITIONS_DROPPED = ["DROP TABLE source_health"];
+
+/** Undoes what schema versions 3 (M4) and 4 added, leaving the version-2 shape. */
 const V3_ADDITIONS_DROPPED = [
+  ...V4_ADDITIONS_DROPPED,
   "DROP TABLE settings",
   "DROP INDEX actions_event",
   "ALTER TABLE events DROP COLUMN calendar_event_id",
@@ -573,7 +577,30 @@ describe("schema migration", () => {
     ]);
     store.close();
   });
-  it("upgrades a version-2 database to 3: calendar columns, settings, events kept", async () => {
+  it("upgrades a version-3 database to 4: source health, events kept", async () => {
+    const client = createClient({ url: ":memory:" });
+    await client.batch(
+      [
+        ...SCHEMA,
+        ...V4_ADDITIONS_DROPPED,
+        `INSERT INTO events (source, source_id, canonical_url, title, type, timezone, is_online, location_tier, status, first_seen_at, updated_at)
+         VALUES ('devpost', '1', 'https://x.com/', 'Old', 'hackathon', 'UTC', 1, 'online', 'watching', 'a', 'a')`,
+        "PRAGMA user_version = 3",
+      ],
+      "write",
+    );
+    const store = new LibsqlStore(client);
+    await expect(store.checkSchema()).rejects.toThrow(/version 3, code expects 4/);
+    await store.migrate();
+    await store.checkSchema();
+    expect(await store.getEvent(1)).toMatchObject({ title: "Old", status: "watching" });
+    expect(await store.recordSourceRun("mlh", "HTTP 503", now)).toEqual({
+      consecutiveFailures: 1,
+      failingSince: now.toISOString(),
+    });
+    store.close();
+  });
+  it("upgrades a version-2 database to 4: calendar columns, settings, events kept", async () => {
     const client = createClient({ url: ":memory:" });
     await client.batch(
       [
@@ -586,7 +613,7 @@ describe("schema migration", () => {
       "write",
     );
     const store = new LibsqlStore(client);
-    await expect(store.checkSchema()).rejects.toThrow(/version 2, code expects 3/);
+    await expect(store.checkSchema()).rejects.toThrow(/version 2, code expects 4/);
     await store.migrate();
     await store.checkSchema();
     expect(await store.getEvent(1)).toMatchObject({

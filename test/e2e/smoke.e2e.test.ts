@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { RunStats, Store } from "../../src/db/store.js";
 import { createReplayDeps, MAX_ALERT_ATTEMPTS, runPipeline } from "../../src/scout.js";
 import { CalendarError, type CalendarClient } from "../../src/calendar.js";
+import type { Source } from "../../src/sources/types.js";
 import { TelegramError, type Messenger } from "../../src/telegram.js";
 
 const run = promisify(execFile);
@@ -26,9 +27,9 @@ describe("scout pipeline in replay mode", () => {
       const first = await runPipeline(deps);
       expect(first).toMatchObject({
         mode: "replay",
-        skippedSources: ["mlh"],
-        itemsFetched: 4,
-        itemsFiltered: 1,
+        // 4 from Devpost, 3 from MLH; the MLH ones have ended or match no include keyword.
+        itemsFetched: 7,
+        itemsFiltered: 4,
         itemsNew: 3,
         // (a), (b) and (d) on Haiku; (b)'s unsure deadline escalates once to Sonnet.
         llmCalls: 4,
@@ -285,6 +286,43 @@ describe("scout pipeline in replay mode", () => {
       await expect(runPipeline({ ...deps, store })).rejects.toThrow("turso down");
       expect(finished).toHaveLength(1);
       expect(finished[0]?.errors).toEqual(["pipeline: turso down"]);
+    } finally {
+      deps.store.close();
+    }
+  });
+
+  it("sends one 'source broken' notice per failure streak, after 3 failed runs", async () => {
+    const deps = await createReplayDeps(FIXTURE);
+    const broken: Source = {
+      name: "mlh",
+      fetch: () => Promise.reject(new Error("mlh page 1: HTTP 503")),
+    };
+    const working = deps.sources;
+    const failing = working.map((source) => (source.name === "mlh" ? broken : source));
+    const notices = (): string[] =>
+      deps.messenger.sent.filter((m) => m.html.includes("Events agent: source")).map((m) => m.html);
+    const day = (n: number): (() => Date) => {
+      const at = new Date(deps.now().getTime() + n * 24 * 60 * 60 * 1000);
+      return () => at;
+    };
+    try {
+      // Devpost keeps working, so the alerts still go out on the first run.
+      const first = await runPipeline({ ...deps, sources: failing });
+      expect(first.alertsSent).toBe(2);
+      expect(first.errors).toEqual(["mlh: mlh page 1: HTTP 503"]);
+      await runPipeline({ ...deps, sources: failing, now: day(1) });
+      expect(notices()).toEqual([]);
+      await runPipeline({ ...deps, sources: failing, now: day(2) });
+      expect(notices()).toEqual([
+        "⚠️ Events agent: source &quot;mlh&quot; has failed 3 runs in a row. Each run still tries it. Last error: mlh page 1: HTTP 503",
+      ]);
+      // Still broken: no second notice for the same streak.
+      await runPipeline({ ...deps, sources: failing, now: day(3) });
+      expect(notices()).toHaveLength(1);
+      // It recovers, then breaks again: a new streak, reported again after 3 runs.
+      await runPipeline({ ...deps, sources: working, now: day(4) });
+      for (const n of [5, 6, 7]) await runPipeline({ ...deps, sources: failing, now: day(n) });
+      expect(notices()).toHaveLength(2);
     } finally {
       deps.store.close();
     }

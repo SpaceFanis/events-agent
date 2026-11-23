@@ -1,28 +1,27 @@
 import type { Criteria } from "../config.js";
 import type { Http } from "../http.js";
 import { DevpostSource } from "./devpost.js";
+import { IcsSource } from "./ics.js";
+import { LumaSource } from "./luma.js";
+import { MlhSource } from "./mlh.js";
+import { RssSource } from "./rss.js";
 import type { Source } from "./types.js";
 
-/** Builds adapters for the configured sources. Kinds without an adapter yet are reported, not failed. */
-export function buildSources(
-  criteria: Criteria,
-  http: Http,
-): { sources: Source[]; skipped: string[] } {
-  const sources: Source[] = [];
-  const skipped: string[] = [];
-  for (const config of criteria.sources) {
+/** Builds one adapter per configured source. */
+export function buildSources(criteria: Criteria, http: Http, now: () => Date): Source[] {
+  const zone = criteria.home.timezone;
+  return criteria.sources.map((config): Source => {
     switch (config.kind) {
       case "devpost":
-        sources.push(new DevpostSource(http));
-        break;
-      // MLH, Luma and RSS/ICS adapters land in M5 (docs/SPEC.md).
+        return new DevpostSource(http);
       case "mlh":
+        return new MlhSource(http, now);
       case "luma":
+        return new LumaSource(http, config, zone);
       case "rss":
+        return new RssSource(http, config);
       case "ics":
-        skipped.push(config.kind);
-        break;
+        return new IcsSource(http, config, zone);
     }
-  }
-  return { sources, skipped };
+  });
 }

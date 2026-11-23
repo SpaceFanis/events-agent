@@ -5,7 +5,7 @@ import type { EventStatus } from "./types.js";
  *
  *   new ──Going──────────► going (calendar entry)
  *    │  ──Not interested──► dismissed (reason optional)
- *    │  ──Remind me───────► watching ──(same choices, reminders in M5)
+ *    │  ──Remind me───────► watching ──(same choices; deadline reminders, src/reminders.ts)
  *    └─ I applied ────────► awaiting_result ──Accepted──► accepted (calendar entry)
  *                                           └─Rejected──► rejected
  */

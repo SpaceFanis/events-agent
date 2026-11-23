@@ -25,6 +25,20 @@ limits:
 sources:
   - kind: devpost
   - kind: mlh
+  # Feeds need a `name` (shown in errors and "source broken" notices instead of the URL, which may
+  # hold a secret token) and take an optional `type` (used when an item's title names no event
+  # type; defaults: luma → meetup, rss/ics → other).
+  # A Luma calendar or city: its ICS URL from the page's "Add to calendar" / RSS menu.
+  # - kind: luma
+  #   url: https://api.lu.ma/ics/get?entity=calendar&id=cal-XXXXXXXX
+  #   name: AI Athens
+  # - kind: rss
+  #   url: https://opportunitydesk.org/feed/
+  #   name: Opportunity Desk
+  #   type: fellowship
+  # - kind: ics
+  #   url: https://example.org/events.ics
+  #   name: Uni robotics lab
 calendar:
   tentativeHoldOnApply: false
   # Google calendar ids checked for conflicts ("primary" is your main calendar).
