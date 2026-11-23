@@ -11,7 +11,7 @@ function isValidTimeZone(timeZone: string): boolean {
   }
 }
 
-const eventType = z.enum([
+export const eventTypeSchema = z.enum([
   "hackathon",
   "conference",
   "competition",
@@ -21,6 +21,8 @@ const eventType = z.enum([
   "summer_school",
   "other",
 ]);
+
+export type EventType = z.infer<typeof eventTypeSchema>;
 
 const minScore = z.number().min(0).max(10);
 
@@ -33,7 +35,7 @@ export const criteriaSchema = z.strictObject({
       exclude: z.array(z.string()).default([]),
     })
     .default({ include: [], exclude: [] }),
-  eventTypes: z.array(eventType).min(1),
+  eventTypes: z.array(eventTypeSchema).min(1),
   home: z.strictObject({
     city: z.string().min(1),
     country: z.string().min(1),
@@ -54,8 +56,10 @@ export const criteriaSchema = z.strictObject({
     .strictObject({
       maxLlmCallsPerRun: z.number().int().positive(),
       monthlyBudgetUsd: z.number().positive(),
+      /** Alerts beyond this wait for the next run, so a backlog never floods the chat. */
+      maxAlertsPerRun: z.number().int().positive().default(20),
     })
-    .default({ maxLlmCallsPerRun: 60, monthlyBudgetUsd: 1 }),
+    .default({ maxLlmCallsPerRun: 60, monthlyBudgetUsd: 1, maxAlertsPerRun: 20 }),
   sources: z
     .array(
       z.discriminatedUnion("kind", [

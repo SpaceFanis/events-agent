@@ -21,6 +21,7 @@ eligibility:
 limits:
   maxLlmCallsPerRun: 60
   monthlyBudgetUsd: 1
+  maxAlertsPerRun: 20
 sources:
   - kind: devpost
   - kind: mlh

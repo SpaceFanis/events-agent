@@ -72,9 +72,11 @@ Open events show [Going] [Remind me] [Not interested]. Application events show [
 
 ## Data model (Turso)
 
-- `events`: id, source, source_id, canonical_url, title, organiser, type, starts_at, ends_at, timezone, location_text, country, city, is_online, location_tier, access_type, register_url, apply_deadline, results_date, cost, travel_support, prizes, eligibility, score, score_reason, unverified_fields (json), status, first_seen_at, updated_at
+Schema version is kept in `PRAGMA user_version`. The code refuses to run against an unknown version, or against an unversioned database that already has tables.
+
+- `events`: id, source, source_id, canonical_url, dedupe_hash, title, organiser, type, starts_at, ends_at, timezone, location_text, country, city, is_online, location_tier, access_type, register_url, apply_deadline, results_date, cost, travel_support, prizes, eligibility, score, score_reason, tags (json), unverified_fields (json), alert_attempts, status, first_seen_at, updated_at. Unique on canonical_url, dedupe_hash and (source, source_id); dedupe_hash is NULL when the start date is unknown.
 - `extractions`: url (pk), content_hash, model, raw_json, input_tokens, output_tokens, cost_usd, created_at
-- `messages`: event_id, telegram_message_id, chat_id, kind (alert/reminder/nudge), sent_at
+- `messages`: event_id, telegram_message_id, chat_id, kind (alert/reminder/nudge/notice), state (claimed/sent/unknown), claimed_at, sent_at. At most one alert row per event: it is inserted as `claimed` before sending and becomes `sent` with its Telegram id afterwards, so overlapping runs or a failed DB write never send twice. A failed send deletes the claim (see Failure handling).
 - `actions`: event_id, action, reason, at (feedback and audit log)
 - `reminders`: event_id, due_at, kind, sent_at
 - `runs`: id, started_at, finished_at, items_fetched, items_new, items_llm, alerts_sent, cost_usd, errors (json)
@@ -97,7 +99,7 @@ Open events show [Going] [Remind me] [Not interested]. Application events show [
 - **LLM error, timeout or refusal:** SDK retries, then the item stays `pending_extraction` and is retried next run. Never alert from unextracted data.
 - **Bad or ambiguous page data:** mark the fields unverified instead of guessing. Dates without a timezone use the event location's zone and are flagged.
 - **Calendar API down:** send the alert with "calendar: couldn't check".
-- **Telegram down:** the message stays unsent and is retried next run; idempotent per event.
+- **Telegram down or misconfigured** (network, 5xx, 401/403, long 429, or any 400 that is not a known content error, e.g. chat not found, not enough rights, chat upgraded to supergroup): the run stops sending and every unsent alert is retried next run, with no attempt used up. Only a known content error (can't parse entities, message too long, empty text) or an event that can't be formatted counts as one attempt for that event; after 3 the event is not alerted. Events that have ended are never alerted late. A timeout or an unreadable 2xx response may mean the message was delivered, so that alert is kept as `unknown` and not resent. Unknown alerts, and `claimed` alerts older than 10 minutes (crash or failed write), are reported in `runs.errors` each run until fixed by hand. Sends are paced at ~1/s, 429 back-offs up to 30 s are waited out, and `limits.maxAlertsPerRun` (default 20) caps alerts per run, with the rest waiting for the next run.
 - **Webhook replay or double press:** status transitions are validated and calendar inserts are idempotent (event id stored).
 - **Cost guard:** hard cap on LLM calls per run (config, default 60) and a monthly $ cap (default $1). If either is exceeded, LLM work stops and I get a Telegram notice.
 
@@ -110,7 +112,7 @@ Open events show [Going] [Remind me] [Not interested]. Application events show [
 
 ## Milestones
 
-1. **M1 Pipeline skeleton:** config loader, Devpost adapter, dedupe, rule filter, Turso schema, replay mode, Telegram send-only alert.
+1. **M1 Pipeline skeleton (done 2026-11-23):** config loader, Devpost adapter, dedupe, rule filter, Turso schema, replay mode, Telegram send-only alert. Until M2, every rule survivor is alerted (no score threshold yet), Devpost's date-only submission period is read in the home zone (UTC when abroad) and flagged "unverified: time", and access is flagged unverified.
 2. **M2 Accurate extraction:** page fetch, Haiku structured extraction with evidence, validation, Sonnet escalation, cost log + caps.
 3. **M3 Calendar:** freeBusy conflicts in alerts.
 4. **M4 Interactive:** Cloudflare Worker webhook, status machine, calendar insert on going / accepted.

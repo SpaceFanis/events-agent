@@ -10,3 +10,7 @@ coverage/
 CLAUDE.md
 AGENTS.md
 .mcp.json
+
+# local libSQL databases (test runs)
+*.db
+*.db-*
