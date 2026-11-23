@@ -160,7 +160,7 @@ describe("calendar entries", () => {
       start: { dateTime: "2026-12-10T16:00:00.000Z", timeZone: "Europe/Athens" },
       end: { dateTime: "2026-12-12T15:00:00.000Z", timeZone: "Europe/Athens" },
       description:
-        "Register / apply: https://a.devpost.com/register\nDetails: https://a.devpost.com/\nAdded by events-agent.",
+        "Register / apply: https://a.devpost.com/register\nDetails: https://a.devpost.com/\nAdded by Hackscout.",
     });
     // Stored as local midnight → 23:59:59; the end date is exclusive in Google.
     const dateOnly = {

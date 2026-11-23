@@ -128,7 +128,7 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
           `source-broken:${name}:${health.failingSince ?? startedAt.toISOString()}`,
           // Sent in HTML mode: the error text may contain markup characters.
           escapeHtml(
-            `⚠️ Events agent: source "${name}" has failed ${String(health.consecutiveFailures)} runs in a row. Each run still tries it. Last error: ${error.slice(0, 500)}`,
+            `⚠️ Hackscout: source "${name}" has failed ${String(health.consecutiveFailures)} runs in a row. Each run still tries it. Last error: ${error.slice(0, 500)}`,
           ),
           errors,
         );

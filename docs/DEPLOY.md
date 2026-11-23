@@ -63,7 +63,7 @@ for name in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_WEBHOOK_SECRET TURSO_DA
 npm run worker:deploy
 ```
 
-It prints the Worker URL (`https://events-agent-webhook.<account>.workers.dev`).
+It prints the Worker URL (`https://events-agent-webhook.<account>.workers.dev`; the Worker keeps the project's first name so its URL stays stable).
 
 ## 4. Telegram webhook
 

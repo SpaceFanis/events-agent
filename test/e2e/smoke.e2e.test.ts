@@ -308,7 +308,7 @@ describe("scout pipeline in replay mode", () => {
     const working = deps.sources;
     const failing = working.map((source) => (source.name === "mlh" ? broken : source));
     const notices = (): string[] =>
-      deps.messenger.sent.filter((m) => m.html.includes("Events agent: source")).map((m) => m.html);
+      deps.messenger.sent.filter((m) => m.html.includes("Hackscout: source")).map((m) => m.html);
     const day = (n: number): (() => Date) => {
       const at = new Date(deps.now().getTime() + n * 24 * 60 * 60 * 1000);
       return () => at;
@@ -322,7 +322,7 @@ describe("scout pipeline in replay mode", () => {
       expect(notices()).toEqual([]);
       await runPipeline({ ...deps, sources: failing, now: day(2) });
       expect(notices()).toEqual([
-        "⚠️ Events agent: source &quot;mlh&quot; has failed 3 runs in a row. Each run still tries it. Last error: mlh page 1: HTTP 503",
+        "⚠️ Hackscout: source &quot;mlh&quot; has failed 3 runs in a row. Each run still tries it. Last error: mlh page 1: HTTP 503",
       ]);
       // Still broken: no second notice for the same streak.
       await runPipeline({ ...deps, sources: failing, now: day(3) });

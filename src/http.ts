@@ -31,7 +31,7 @@ export class FetchHttp implements Http {
 
   async getJson(url: string): Promise<unknown> {
     const response = await this.fetchFn(url, {
-      headers: { accept: "application/json", "user-agent": "events-agent/1.0" },
+      headers: { accept: "application/json", "user-agent": "hackscout/1.0" },
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!response.ok) {
@@ -42,7 +42,7 @@ export class FetchHttp implements Http {
 
   async getText(url: string): Promise<string> {
     const response = await this.fetchFn(url, {
-      headers: { accept: "text/html,application/xhtml+xml", "user-agent": "events-agent/1.0" },
+      headers: { accept: "text/html,application/xhtml+xml", "user-agent": "hackscout/1.0" },
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!response.ok) {

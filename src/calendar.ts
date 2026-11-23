@@ -67,7 +67,8 @@ export async function calendarEntryId(canonicalUrl: string): Promise<string> {
     }
     value &= (1 << bits) - 1;
   }
-  // 130 bits is plenty; the "ea" prefix marks entries made by events-agent.
+  // 130 bits is plenty; the "ea" prefix marks entries made by this app (from its first name,
+  // events-agent; kept so ids of entries already in calendars stay the same).
   return `ea${out.slice(0, 26)}`;
 }
 
@@ -106,7 +107,7 @@ export async function calendarEntryFor(
   const lines = [
     ...(event.registerUrl === null ? [] : [`Register / apply: ${event.registerUrl}`]),
     `Details: ${event.canonicalUrl}`,
-    "Added by events-agent.",
+    "Added by Hackscout.",
   ];
   return {
     id: await calendarEntryId(event.canonicalUrl),
