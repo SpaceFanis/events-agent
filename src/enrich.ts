@@ -19,6 +19,7 @@ import {
   type LlmClient,
   type LlmModel,
 } from "./llm.js";
+import { sendNoticeOnce } from "./notices.js";
 import { readPage, type Page } from "./page.js";
 import type { Messenger } from "./telegram.js";
 import type { StoredEvent } from "./types.js";
@@ -388,11 +389,5 @@ async function sendCapNotice(
       ? `⚠️ Events agent: the monthly LLM budget ($${limits.monthlyBudgetUsd.toFixed(2)}) is reached. Extraction is paused until next month; raise limits.monthlyBudgetUsd to resume sooner.`
       : `⚠️ Events agent: hit the cap of ${String(limits.maxLlmCallsPerRun)} LLM calls this run. The remaining events wait for the next run.`;
   errors.push(`LLM ${cap} cap reached after ${String(budget.calls)} calls`);
-  try {
-    if (await deps.store.noticeSent(key)) return;
-    const sent = await deps.messenger.send(text);
-    await deps.store.recordNotice(key, sent.chatId, sent.messageId, now);
-  } catch (error) {
-    errors.push(`cap notice: ${message(error)}`);
-  }
+  await sendNoticeOnce(deps, key, text, errors);
 }

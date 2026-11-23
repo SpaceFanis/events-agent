@@ -2,7 +2,7 @@ import { createClient } from "@libsql/client";
 import { describe, expect, it } from "vitest";
 import { parseCriteria } from "../src/config.js";
 import { LibsqlStore } from "../src/db/store.js";
-import { SCHEMA } from "../src/db/schema.js";
+import { SCHEMA, SCHEMA_VERSION } from "../src/db/schema.js";
 import { LlmBudget, monthStart } from "../src/enrich.js";
 import { formatAlert } from "../src/alert.js";
 import {
@@ -520,13 +520,26 @@ describe("LLM cost and caps", () => {
   });
 });
 
+/** Undoes what schema version 4 added (M5), leaving the version-3 shape. */
+const V4_ADDITIONS_DROPPED = ["DROP TABLE source_health"];
+
+/** Undoes what schema versions 3 (M4) and 4 added, leaving the version-2 shape. */
+const V3_ADDITIONS_DROPPED = [
+  ...V4_ADDITIONS_DROPPED,
+  "DROP TABLE settings",
+  "DROP INDEX actions_event",
+  "ALTER TABLE events DROP COLUMN calendar_event_id",
+  "ALTER TABLE events DROP COLUMN calendar_state",
+];
+
 describe("schema migration", () => {
   it("upgrades a version-1 database in place, keeping its rows", async () => {
     const client = createClient({ url: ":memory:" });
-    // Rebuild the v1 shape: today's schema minus what version 2 added.
+    // Rebuild the v1 shape: today's schema minus what versions 2 and 3 added.
     await client.batch(
       [
         ...SCHEMA,
+        ...V3_ADDITIONS_DROPPED,
         "DROP INDEX messages_notice_key",
         "DROP TABLE llm_calls",
         "ALTER TABLE events DROP COLUMN register_steps",
@@ -555,13 +568,64 @@ describe("schema migration", () => {
     await store.migrate();
     await store.migrate(); // idempotent
     const version = await client.execute("PRAGMA user_version");
-    expect(version.rows[0]?.["user_version"]).toBe(2);
+    expect(version.rows[0]?.["user_version"]).toBe(SCHEMA_VERSION);
     expect(await store.llmSpendSince(new Date(0))).toBe(0);
     // M1 stored it as `new` but never alerted it: it must be extracted before any alert.
     expect(await store.eventsAwaitingAlert(now, 3, 10)).toEqual([]);
     expect(await store.eventsPendingExtraction(now, 10)).toEqual([
       expect.objectContaining({ title: "Old", status: "pending_extraction", registerSteps: null }),
     ]);
+    store.close();
+  });
+  it("upgrades a version-3 database to 4: source health, events kept", async () => {
+    const client = createClient({ url: ":memory:" });
+    await client.batch(
+      [
+        ...SCHEMA,
+        ...V4_ADDITIONS_DROPPED,
+        `INSERT INTO events (source, source_id, canonical_url, title, type, timezone, is_online, location_tier, status, first_seen_at, updated_at)
+         VALUES ('devpost', '1', 'https://x.com/', 'Old', 'hackathon', 'UTC', 1, 'online', 'watching', 'a', 'a')`,
+        "PRAGMA user_version = 3",
+      ],
+      "write",
+    );
+    const store = new LibsqlStore(client);
+    await expect(store.checkSchema()).rejects.toThrow(/version 3, code expects 4/);
+    await store.migrate();
+    await store.checkSchema();
+    expect(await store.getEvent(1)).toMatchObject({ title: "Old", status: "watching" });
+    expect(await store.recordSourceRun("mlh", "HTTP 503", now)).toEqual({
+      consecutiveFailures: 1,
+      failingSince: now.toISOString(),
+    });
+    store.close();
+  });
+  it("upgrades a version-2 database to 4: calendar columns, settings, events kept", async () => {
+    const client = createClient({ url: ":memory:" });
+    await client.batch(
+      [
+        ...SCHEMA,
+        ...V3_ADDITIONS_DROPPED,
+        `INSERT INTO events (source, source_id, canonical_url, title, type, timezone, is_online, location_tier, status, first_seen_at, updated_at)
+         VALUES ('devpost', '1', 'https://x.com/', 'Old', 'hackathon', 'UTC', 1, 'online', 'new', 'a', 'a')`,
+        "PRAGMA user_version = 2",
+      ],
+      "write",
+    );
+    const store = new LibsqlStore(client);
+    await expect(store.checkSchema()).rejects.toThrow(/version 2, code expects 4/);
+    await store.migrate();
+    await store.checkSchema();
+    expect(await store.getEvent(1)).toMatchObject({
+      title: "Old",
+      status: "new",
+      calendarEventId: null,
+      calendarState: null,
+    });
+    expect(await store.getSetting("x")).toBeNull();
+    await store.saveSetting("x", "1", now);
+    await store.saveSetting("x", "2", now);
+    expect(await store.getSetting("x")).toBe("2");
     store.close();
   });
 });

@@ -1,8 +1,10 @@
 import { createClient, type Client, type Row, type Value } from "@libsql/client";
 import { z } from "zod";
-import { eventTypeSchema } from "../config.js";
+import { eventTypeSchema } from "../event-type.js";
 import type {
   AccessType,
+  ActionableEvent,
+  CalendarState,
   EventDetails,
   EventStatus,
   LocationTier,
@@ -20,6 +22,19 @@ const locationTierSchema = z.enum([
 const accessTypeSchema = z.enum(["open", "application", "invite"] satisfies AccessType[]);
 
 export type MessageKind = "alert" | "reminder" | "nudge" | "notice";
+
+/** A source adapter's failure streak after this run. */
+export interface SourceHealth {
+  consecutiveFailures: number;
+  /** When the current streak started (null after a success); names the streak's single notice. */
+  failingSince: string | null;
+}
+
+/**
+ * Deadline reminders for `watching` events (3 days and 1 day before) and the one-off
+ * "did you get results?" nudge for `awaiting_result` events.
+ */
+export type ReminderKind = "deadline_3d" | "deadline_1d" | "results";
 
 export interface UnconfirmedAlert {
   eventId: number;
@@ -132,10 +147,65 @@ export interface Store {
   recordNotice(key: string, chatId: string, telegramMessageId: number, now: Date): Promise<void>;
   startRun(now: Date): Promise<number>;
   finishRun(runId: number, stats: RunStats, now: Date): Promise<void>;
+  /** Records one fetch of a source (`error` null on success) and returns its failure streak. */
+  recordSourceRun(name: string, error: string | null, now: Date): Promise<SourceHealth>;
+
+  // Reminders and results nudges (same cron).
+  /**
+   * `watching` events whose deadline (or, without one, start) is still ahead, and `awaiting_result`
+   * events whose results date has passed and that haven't ended.
+   */
+  eventsForReminders(now: Date): Promise<ActionableEvent[]>;
+  /**
+   * Claims one reminder before sending it (unique on event, kind and due time). Returns the row id,
+   * or null if it was already claimed: sent, in flight in an overlapping run, or possibly delivered.
+   */
+  claimReminder(eventId: number, kind: ReminderKind, dueAt: string): Promise<number | null>;
+  /** Marks a claimed reminder as sent and logs its Telegram message. */
+  completeReminder(
+    reminderId: number,
+    eventId: number,
+    kind: ReminderKind,
+    chatId: string,
+    telegramMessageId: number,
+    sentAt: Date,
+  ): Promise<void>;
+  /** Drops an unsent claim so the next run retries it (Telegram was down). */
+  releaseReminder(reminderId: number): Promise<void>;
+
+  // Button presses (Worker webhook).
+  /** Throws unless the database is at exactly this code's schema version. Never migrates. */
+  checkSchema(): Promise<void>;
+  getEvent(eventId: number): Promise<ActionableEvent | null>;
+  /**
+   * Moves the event from `from` to `to` and logs `action` in `actions`, only if it is still in `from`
+   * (compare-and-set: a double press or a replayed update changes nothing). Returns whether it moved.
+   */
+  transitionStatus(
+    eventId: number,
+    from: string,
+    to: EventStatus,
+    action: string,
+    now: Date,
+  ): Promise<boolean>;
+  /** Logs the optional "not interested" reason, only if none is stored yet. Returns whether it did. */
+  recordDismissReason(eventId: number, reason: string, now: Date): Promise<boolean>;
+  /** The reason of the latest `action` row with one, or null. */
+  latestReason(eventId: number, action: string): Promise<string | null>;
+  /** Records (or, with nulls, clears) the Google Calendar entry created for the event. */
+  setCalendarEntry(
+    eventId: number,
+    calendarEventId: string | null,
+    state: CalendarState | null,
+    now: Date,
+  ): Promise<void>;
+  getSetting(key: string): Promise<string | null>;
+  saveSetting(key: string, value: string, now: Date): Promise<void>;
   close(): void;
 }
 
 const stringArray = z.array(z.string());
+const calendarStateSchema = z.enum(["tentative", "confirmed"] satisfies CalendarState[]);
 
 function text(row: Row, column: string): string {
   const value: Value | undefined = row[column];
@@ -198,6 +268,19 @@ function toStoredEvent(row: Row): StoredEvent {
     score: numberOrNull(row, "score"),
     scoreReason: textOrNull(row, "score_reason"),
   };
+}
+
+function toActionableEvent(row: Row): ActionableEvent {
+  return {
+    ...toStoredEvent(row),
+    calendarEventId: textOrNull(row, "calendar_event_id"),
+    calendarState: calendarStateSchema.nullable().parse(textOrNull(row, "calendar_state")),
+  };
+}
+
+/** The database is at another schema version than this code (not a connection failure). */
+export class SchemaMismatchError extends Error {
+  override name = "SchemaMismatchError";
 }
 
 export class LibsqlStore implements Store {
@@ -530,6 +613,190 @@ export class LibsqlStore implements Store {
         JSON.stringify(stats.errors),
         runId,
       ],
+    });
+  }
+
+  async recordSourceRun(name: string, error: string | null, now: Date): Promise<SourceHealth> {
+    const at = now.toISOString();
+    // On conflict, bare column names are the stored row's values.
+    const result = await this.client.execute(
+      error === null
+        ? {
+            sql: `INSERT INTO source_health (name, consecutive_failures, failing_since, last_error, updated_at)
+                  VALUES (?, 0, NULL, NULL, ?)
+                  ON CONFLICT (name) DO UPDATE SET consecutive_failures = 0, failing_since = NULL,
+                    last_error = NULL, updated_at = excluded.updated_at
+                  RETURNING consecutive_failures, failing_since`,
+            args: [name, at],
+          }
+        : {
+            sql: `INSERT INTO source_health (name, consecutive_failures, failing_since, last_error, updated_at)
+                  VALUES (?, 1, ?, ?, ?)
+                  ON CONFLICT (name) DO UPDATE SET consecutive_failures = consecutive_failures + 1,
+                    failing_since = COALESCE(failing_since, excluded.failing_since),
+                    last_error = excluded.last_error, updated_at = excluded.updated_at
+                  RETURNING consecutive_failures, failing_since`,
+            args: [name, at, error, at],
+          },
+    );
+    const row = result.rows[0];
+    if (row === undefined) throw new Error("source_health upsert returned no row");
+    return {
+      consecutiveFailures: integer(row, "consecutive_failures"),
+      failingSince: textOrNull(row, "failing_since"),
+    };
+  }
+
+  async eventsForReminders(now: Date): Promise<ActionableEvent[]> {
+    const at = now.toISOString();
+    const result = await this.client.execute({
+      sql: `SELECT * FROM events
+            WHERE (status = 'watching' AND COALESCE(apply_deadline, starts_at) > ?)
+               OR (status = 'awaiting_result' AND results_date IS NOT NULL AND results_date <= ?
+                   AND (ends_at IS NULL OR ends_at >= ?))
+            ORDER BY id`,
+      args: [at, at, at],
+    });
+    return result.rows.map(toActionableEvent);
+  }
+
+  async claimReminder(eventId: number, kind: ReminderKind, dueAt: string): Promise<number | null> {
+    const result = await this.client.execute({
+      sql: `INSERT INTO reminders (event_id, due_at, kind) VALUES (?, ?, ?)
+            ON CONFLICT DO NOTHING RETURNING id`,
+      args: [eventId, dueAt, kind],
+    });
+    const row = result.rows[0];
+    return row === undefined ? null : integer(row, "id");
+  }
+
+  async completeReminder(
+    reminderId: number,
+    eventId: number,
+    kind: ReminderKind,
+    chatId: string,
+    telegramMessageId: number,
+    sentAt: Date,
+  ): Promise<void> {
+    const at = sentAt.toISOString();
+    await this.client.batch(
+      [
+        { sql: `UPDATE reminders SET sent_at = ? WHERE id = ?`, args: [at, reminderId] },
+        {
+          sql: `INSERT INTO messages (event_id, telegram_message_id, chat_id, kind, state, claimed_at, sent_at)
+                VALUES (?, ?, ?, ?, 'sent', ?, ?)`,
+          args: [
+            eventId,
+            telegramMessageId,
+            chatId,
+            kind === "results" ? "nudge" : "reminder",
+            at,
+            at,
+          ],
+        },
+      ],
+      "write",
+    );
+  }
+
+  async releaseReminder(reminderId: number): Promise<void> {
+    await this.client.execute({
+      sql: `DELETE FROM reminders WHERE id = ? AND sent_at IS NULL`,
+      args: [reminderId],
+    });
+  }
+
+  async checkSchema(): Promise<void> {
+    const row = (await this.client.execute("PRAGMA user_version")).rows[0];
+    const version = row === undefined ? null : integer(row, "user_version");
+    if (version !== SCHEMA_VERSION) {
+      throw new SchemaMismatchError(
+        `database schema is version ${String(version)}, code expects ${String(SCHEMA_VERSION)}; run a scout to migrate`,
+      );
+    }
+  }
+
+  async getEvent(eventId: number): Promise<ActionableEvent | null> {
+    const result = await this.client.execute({
+      sql: `SELECT * FROM events WHERE id = ?`,
+      args: [eventId],
+    });
+    const row = result.rows[0];
+    return row === undefined ? null : toActionableEvent(row);
+  }
+
+  async transitionStatus(
+    eventId: number,
+    from: string,
+    to: EventStatus,
+    action: string,
+    now: Date,
+  ): Promise<boolean> {
+    const at = now.toISOString();
+    // One write transaction: the audit row is written only if this press changed the status.
+    const [update] = await this.client.batch(
+      [
+        {
+          sql: `UPDATE events SET status = ?, updated_at = ? WHERE id = ? AND status = ?`,
+          args: [to, at, eventId, from],
+        },
+        {
+          sql: `INSERT INTO actions (event_id, action, reason, at) SELECT ?, ?, NULL, ? WHERE changes() = 1`,
+          args: [eventId, action, at],
+        },
+      ],
+      "write",
+    );
+    return update !== undefined && update.rowsAffected === 1;
+  }
+
+  async recordDismissReason(eventId: number, reason: string, now: Date): Promise<boolean> {
+    // One statement, so a double tap or a redelivered update can't log two reasons.
+    const result = await this.client.execute({
+      sql: `INSERT INTO actions (event_id, action, reason, at)
+            SELECT ?, 'dismiss_reason', ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM actions WHERE event_id = ? AND action = 'dismiss_reason')`,
+      args: [eventId, reason, now.toISOString(), eventId],
+    });
+    return result.rowsAffected === 1;
+  }
+
+  async latestReason(eventId: number, action: string): Promise<string | null> {
+    const result = await this.client.execute({
+      sql: `SELECT reason FROM actions WHERE event_id = ? AND action = ? AND reason IS NOT NULL
+            ORDER BY id DESC LIMIT 1`,
+      args: [eventId, action],
+    });
+    const row = result.rows[0];
+    return row === undefined ? null : textOrNull(row, "reason");
+  }
+
+  async setCalendarEntry(
+    eventId: number,
+    calendarEventId: string | null,
+    state: CalendarState | null,
+    now: Date,
+  ): Promise<void> {
+    await this.client.execute({
+      sql: `UPDATE events SET calendar_event_id = ?, calendar_state = ?, updated_at = ? WHERE id = ?`,
+      args: [calendarEventId, state, now.toISOString(), eventId],
+    });
+  }
+
+  async getSetting(key: string): Promise<string | null> {
+    const result = await this.client.execute({
+      sql: `SELECT value FROM settings WHERE key = ?`,
+      args: [key],
+    });
+    const row = result.rows[0];
+    return row === undefined ? null : text(row, "value");
+  }
+
+  async saveSetting(key: string, value: string, now: Date): Promise<void> {
+    await this.client.execute({
+      sql: `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      args: [key, value, now.toISOString()],
     });
   }
 

@@ -2,12 +2,15 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { formatAlert } from "./alert.js";
+import { escapeHtml, formatAlert } from "./alert.js";
+import { keyboardFor } from "./buttons.js";
 import {
   checkCalendar,
   FakeCalendar,
   GoogleCalendar,
+  recordedCalendar,
   UnconfiguredCalendar,
+  type BusyEvent,
   type CalendarClient,
   type CalendarStatus,
 } from "./calendar.js";
@@ -18,6 +21,9 @@ import { applyRules } from "./filter.js";
 import { FetchHttp, ReplayHttp, type Http } from "./http.js";
 import { AnthropicLlm, ReplayLlm, type LlmClient } from "./llm.js";
 import { normalizeItem } from "./normalize.js";
+import { sendNoticeOnce } from "./notices.js";
+import { sendReminders } from "./reminders.js";
+import { SETTING_TENTATIVE_HOLD } from "./settings.js";
 import { buildSources } from "./sources/index.js";
 import type { Source } from "./sources/types.js";
 import { FakeMessenger, TelegramError, TelegramMessenger, type Messenger } from "./telegram.js";
@@ -26,12 +32,13 @@ import type { ScoutedEvent } from "./types.js";
 export interface RunSummary {
   mode: "live" | "replay";
   sources: number;
-  skippedSources: string[];
   itemsFetched: number;
   itemsFiltered: number;
   itemsNew: number;
   llmCalls: number;
   alertsSent: number;
+  /** Deadline reminders and results nudges. */
+  remindersSent: number;
   costUsd: number;
   errors: string[];
 }
@@ -39,7 +46,6 @@ export interface RunSummary {
 export interface PipelineDeps {
   criteria: Criteria;
   sources: Source[];
-  skippedSources: string[];
   store: Store;
   /** Event pages for extraction (sources hold their own Http). */
   http: Http;
@@ -55,6 +61,9 @@ const STALE_CLAIM_MS = 10 * 60 * 1000;
 
 /** Failed sends per event before we stop retrying (e.g. a message Telegram always rejects). */
 export const MAX_ALERT_ATTEMPTS = 3;
+
+/** Consecutive failed runs of one source before Telegram gets a "source broken" notice. */
+export const SOURCE_BROKEN_AFTER = 3;
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -73,14 +82,17 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
   let itemsFiltered = 0;
   let itemsNew = 0;
   let alertsSent = 0;
+  let remindersSent = 0;
   // Filled in by the extraction stage as it goes, so failed runs still record their spend.
   const llm = { llmCalls: 0, costUsd: 0, extracted: 0 };
 
   // Each adapter fails alone; the run continues with the others.
   const survivors: ScoutedEvent[] = [];
+  const fetchErrors = new Map<string, string | null>();
   for (const source of deps.sources) {
     try {
       const result = await source.fetch();
+      fetchErrors.set(source.name, null);
       errors.push(...result.warnings);
       itemsFetched += result.items.length;
       for (const item of result.items) {
@@ -89,11 +101,35 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
         else itemsFiltered++;
       }
     } catch (error) {
+      fetchErrors.set(source.name, message(error));
       errors.push(`${source.name}: ${message(error)}`);
     }
   }
 
   try {
+    // Published every run, so the Worker follows the latest criteria.yaml.
+    await store.saveSetting(
+      SETTING_TENTATIVE_HOLD,
+      String(criteria.calendar.tentativeHoldOnApply),
+      startedAt,
+    );
+
+    for (const [name, error] of fetchErrors) {
+      const health = await store.recordSourceRun(name, error, startedAt);
+      if (error !== null && health.consecutiveFailures >= SOURCE_BROKEN_AFTER) {
+        // One notice per failure streak: a source that recovers and breaks again is reported again.
+        await sendNoticeOnce(
+          deps,
+          `source-broken:${name}:${health.failingSince ?? startedAt.toISOString()}`,
+          // Sent in HTML mode: the error text may contain markup characters.
+          escapeHtml(
+            `⚠️ Events agent: source "${name}" has failed ${String(health.consecutiveFailures)} runs in a row. Each run still tries it. Last error: ${error.slice(0, 500)}`,
+          ),
+          errors,
+        );
+      }
+    }
+
     for (const event of survivors) {
       if ((await store.insertIfNew(event, "pending_extraction", startedAt)) !== null) itemsNew++;
     }
@@ -122,6 +158,8 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
     // After the first failed calendar check the rest of the run skips it: an outage or bad token
     // would fail every call, and the alert goes out with "couldn't check" instead of waiting.
     let calendarDown = false;
+    // A Telegram outage during alerts skips the reminders too; both are retried next run.
+    let telegramDown = false;
     for (const event of awaiting) {
       const claim = await store.claimAlert(event.id, messenger.chatId, deps.now());
       if (claim === null) continue; // another run got it first
@@ -145,7 +183,11 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
       }
       let sent;
       try {
-        sent = await messenger.send(html);
+        // A just-alerted event is `new` with no calendar entry: Going/I applied, Remind me, Not interested.
+        sent = await messenger.send(
+          html,
+          keyboardFor({ ...event, calendarState: null, calendarEventId: null }, null),
+        );
       } catch (error) {
         const failure = error instanceof TelegramError ? error.failure : "systemic";
         errors.push(`alert for event ${String(event.id)}: ${message(error)}`);
@@ -168,13 +210,18 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
           throw releaseError;
         }
         // Outage or bad config: no other message would get through either. Retry everything next run.
-        if (failure === "systemic") break;
+        if (failure === "systemic") {
+          telegramDown = true;
+          break;
+        }
         continue;
       }
       alertsSent++;
       // If this write fails the claim row stays, so the event is never sent twice; the run errors out.
       await store.completeAlert(claim, sent.messageId, deps.now());
     }
+
+    if (!telegramDown) remindersSent = await sendReminders(deps, errors);
   } catch (error) {
     errors.push(`pipeline: ${message(error)}`);
     throw error;
@@ -201,12 +248,12 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
   return {
     mode: deps.mode,
     sources: criteria.sources.length,
-    skippedSources: deps.skippedSources,
     itemsFetched,
     itemsFiltered,
     itemsNew,
     llmCalls: llm.llmCalls,
     alertsSent,
+    remindersSent,
     costUsd: Math.round(llm.costUsd * 1e6) / 1e6,
     errors,
   };
@@ -227,16 +274,14 @@ export async function createReplayDeps(
   );
   const now = new Date(config.now);
   const http = new ReplayHttp(replayDir);
-  const { sources, skipped } = buildSources(criteria, http);
   return {
     criteria,
-    sources,
-    skippedSources: skipped,
+    sources: buildSources(criteria, http, () => now),
     store: await openStore(":memory:"),
     http,
     llm: new ReplayLlm(replayDir),
     messenger: new FakeMessenger(),
-    calendar: new FakeCalendar(replayDir),
+    calendar: new FakeCalendar(await loadRecordedBusy(replayDir)),
     now: () => now,
     mode: "replay",
   };
@@ -278,19 +323,30 @@ export async function createLiveDeps(
   const authToken = env.TURSO_AUTH_TOKEN;
   const apiKey = requireEnv(env, "ANTHROPIC_API_KEY");
   const http = new FetchHttp();
-  const { sources, skipped } = buildSources(criteria, http);
+  const now = (): Date => new Date();
   return {
     criteria,
-    sources,
-    skippedSources: skipped,
+    sources: buildSources(criteria, http, now),
     store: await openStore(dbUrl, authToken === "" ? undefined : authToken),
     http,
     llm: new AnthropicLlm(new Anthropic({ apiKey, timeout: 120_000 })),
     messenger: new TelegramMessenger(botToken, chatId),
     calendar: calendarFromEnv(env, criteria),
-    now: () => new Date(),
+    now,
     mode: "live",
   };
+}
+
+/** Busy blocks from `<dir>/calendar.json` (an empty calendar when the file is missing). */
+export async function loadRecordedBusy(dir: string): Promise<BusyEvent[]> {
+  let text: string;
+  try {
+    text = await readFile(join(dir, "calendar.json"), "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    throw error;
+  }
+  return recordedCalendar.parse(JSON.parse(text)).busy;
 }
 
 export function replayCriteriaPath(replayDir: string): string {

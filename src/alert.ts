@@ -25,7 +25,19 @@ const TYPE_LABELS: Record<ScoutedEvent["type"], string> = {
 
 const MAX_TAGS = 8;
 
-const SOURCE_LABELS: Record<string, string> = { devpost: "Devpost", mlh: "MLH", luma: "Luma" };
+const SOURCE_LABELS: Record<string, string> = {
+  devpost: "Devpost",
+  mlh: "MLH",
+  luma: "Luma",
+  rss: "feed",
+  ics: "calendar feed",
+};
+
+/** The "Source: …" line, linking the event's page. */
+export function sourceLine(event: Pick<ScoutedEvent, "source" | "canonicalUrl">): string {
+  const source = SOURCE_LABELS[event.source] ?? event.source;
+  return `Source: <a href="${escapeHtml(event.canonicalUrl)}">${escapeHtml(source)}</a>`;
+}
 
 function when(event: AlertEvent): string {
   if (event.startsAt === null || event.endsAt === null) return "⚠️ dates unknown";
@@ -40,7 +52,7 @@ function when(event: AlertEvent): string {
  * Deadlines the page gave as a date only are stored at 23:59:59 local time; times read from a page
  * always have :00 seconds. Zone offsets are whole minutes, so the UTC seconds tell them apart.
  */
-function formatDeadline(utcIso: string, timeZone: string): string {
+export function formatDeadline(utcIso: string, timeZone: string): string {
   return new Date(utcIso).getUTCSeconds() === 59
     ? formatDate(utcIso, timeZone)
     : formatDateTime(utcIso, timeZone);
@@ -120,8 +132,7 @@ export function formatAlert(event: AlertEvent, calendar: CalendarStatus): string
     const more = event.tags.length > MAX_TAGS ? ` +${String(event.tags.length - MAX_TAGS)}` : "";
     lines.push(`🏷 ${escapeHtml(shown.join(", "))}${more}`);
   }
-  const source = SOURCE_LABELS[event.source] ?? event.source;
-  lines.push(`Source: <a href="${escapeHtml(event.canonicalUrl)}">${escapeHtml(source)}</a>`);
+  lines.push(sourceLine(event));
   if (event.unverifiedFields.length > 0) {
     lines.push(`⚠️ unverified: ${escapeHtml(event.unverifiedFields.join(", "))}`);
   }

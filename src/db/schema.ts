@@ -3,7 +3,27 @@
  * Times are UTC ISO strings; `events.timezone` holds the event's IANA zone.
  */
 /** Bump on any schema change and add a migration; migrate() refuses unknown versions. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 4;
+
+/**
+ * Consecutive failed fetches per source adapter (by its configured name). Reset by a success;
+ * `failing_since` names the current streak, so each streak sends at most one "source broken" notice.
+ */
+const SOURCE_HEALTH = `CREATE TABLE IF NOT EXISTS source_health (
+    name TEXT PRIMARY KEY,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    failing_since TEXT,
+    last_error TEXT,
+    updated_at TEXT NOT NULL
+  )`;
+
+/** Small key/value settings the cron publishes for the Worker (it has no criteria.yaml). */
+const SETTINGS = `CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`;
+const ACTIONS_INDEX = `CREATE INDEX IF NOT EXISTS actions_event ON actions (event_id, action)`;
 
 /** Cost log: one row per LLM call, paid or failed. The monthly budget cap sums this table. */
 const LLM_CALLS = `CREATE TABLE IF NOT EXISTS llm_calls (
@@ -55,6 +75,9 @@ export const SCHEMA: readonly string[] = [
     -- LLM calls on this page that returned nothing usable (refusal, cut off, bad JSON).
     extract_attempts INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
+    -- Google Calendar entry created by a button press (going / accepted / tentative hold).
+    calendar_event_id TEXT,
+    calendar_state TEXT CHECK (calendar_state IN ('tentative', 'confirmed')),
     first_seen_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE (source, source_id)
@@ -116,6 +139,9 @@ export const SCHEMA: readonly string[] = [
   )`,
   LLM_CALLS,
   LLM_CALLS_INDEX,
+  ACTIONS_INDEX,
+  SETTINGS,
+  SOURCE_HEALTH,
 ];
 
 /** Statements that bring a database from version N-1 up to N, keyed by N. */
@@ -131,4 +157,11 @@ export const MIGRATIONS: Readonly<Record<number, readonly string[]>> = {
     `UPDATE events SET status = 'pending_extraction'
       WHERE status = 'new' AND id NOT IN (SELECT event_id FROM messages WHERE kind = 'alert' AND event_id IS NOT NULL)`,
   ],
+  3: [
+    `ALTER TABLE events ADD COLUMN calendar_event_id TEXT`,
+    `ALTER TABLE events ADD COLUMN calendar_state TEXT CHECK (calendar_state IN ('tentative', 'confirmed'))`,
+    ACTIONS_INDEX,
+    SETTINGS,
+  ],
+  4: [SOURCE_HEALTH],
 };

@@ -1,0 +1,169 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Luma//What’s Happening in Budapest//EN
+X-WR-CALNAME:What’s Happening in Budapest
+X-WR-CALDESC:Luma Calendar
+REFRESH-INTERVAL;VALUE=DURATION:PT12H
+X-PUBLISHED-TTL:PT12H
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+BEGIN:VEVENT
+DTSTART:20261123T163000Z
+DTEND:20261123T200000Z
+DTSTAMP:20261123T143444Z
+ORGANIZER;CN="tamas puski":MAILTO:calendar-invite@lu.ma
+UID:evt-XRytx2Zk0oH5MPm@events.lu.ma
+SUMMARY:Budapest | Claude Meetup For Everyone
+DESCRIPTION:Get up-to-date information at: https://luma.com/claude-nk9s\n
+ \nAddress:\nCREATE26 Coworking\nBudapest, Hungary\n\nJoin us for the next 
+ Claude Community Budapest Meetup.\nWhether you’re already integrating Cl
+ aude Code, Cowork into your daily workflow, curious about agentic coding, 
+ or simply looking to connect with others exploring AI-powered development,
+  this event is for you.\nWho Should Attend?\nThis meetup is open to everyo
+ ne, regardless of experience level—just be curious:\nFounders & Operator
+ s: Learn how to scale efficiently and move faster.\nBusiness Professionals
+ : Discover how to delegate repetitive tasks to AI agents.\nEngineers & PMs
+ : See firsthand how Claude can significantly reduce development…\n\nHost
+ ed by tamas puski
+LOCATION:CREATE26 Coworking, Budapest, Király u. 26, 1061 Hungary
+GEO:47.4995792;19.0587484
+SEQUENCE:217607684
+STATUS:TENTATIVE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20261124T173000Z
+DTEND:20261124T200000Z
+DTSTAMP:20261123T143444Z
+ORGANIZER;CN="Torino Connect":MAILTO:calendar-invite@lu.ma
+UID:evt-AjacCC687TIauhA@events.lu.ma
+SUMMARY:Budapest Connect #3 - The MeOut Summit Edition
+DESCRIPTION:Get up-to-date information at: https://luma.com/vi6xtt1h\n\nAd
+ dress:\nCheck event page for more details.\n\nBudapest Connect is back for
+  its third edition! \n\nJoin us on Tuesday 24 November at Akvárium Klub f
+ or a soft landing into MeOut Summit: a relaxed evening to meet the people 
+ shaping the startup ecosystem before the summit gets underway.\n\nOur goal
+  is simple: bring together founders, investors, operators, students, ecosy
+ stem builders, and curious minds in a relaxed, welcoming atmosphere.\nNo p
+ anels, no pitches, just real people, genuine conversations, and the kind o
+ f unexpected connections that happen when ambitious people share the same 
+ room.\nWhat started in Torino, Italy, as Torino Connect -…\n\nHosted by 
+ Torino Connect
+LOCATION:https://luma.com/event/evt-AjacCC687TIauhA
+GEO:47.50028750291616;19.05513154740846
+SEQUENCE:217607684
+STATUS:TENTATIVE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20261129T080000Z
+DTEND:20261129T103000Z
+DTSTAMP:20261123T143444Z
+ORGANIZER;CN="Ivett Roskovics":MAILTO:calendar-invite@lu.ma
+UID:evt-hn0SsSsIAgbxdzK@events.lu.ma
+SUMMARY:THE RESONANCE BY reNode
+DESCRIPTION:Get up-to-date information at: https://luma.com/a0fmo7fu\n\nAd
+ dress:\nCasa Luna\nBudapest, Hungary\n\nHangolódj át, és rezonálj újr
+ a önmagaddal.\nreNode × Alaplébár × Casa Luna\nTudjuk: elengedni a le
+ gnehezebb.\nHatáridők, teendőlisták, állandó zaj – a hét tele van
+  olyan dolgokkal, amiket nem engedhetsz el. Közben mindenhonnan azt kapod
+ , hogy rajtad múlik, hogyan állsz a dolgokhoz. Igazuk van. De mi lenne, 
+ ha ehhez végre eszköztárad is lenne?\nA reNode-nál pontosan ezt kapod:
+  a légzést, ami lecsendesít; a hangot, ami áthangol; a kihívást, ami
+  felébreszt; és az időt, ami végre csak rólad szól.\nA THE RESONANCE
+  nem egy újabb kipipálandó pont a listádon, hanem találkozások sora 
+ – önmagaddal és…\n\nHosted by Ivett Roskovics
+LOCATION:Casa Luna, Budapest, Fodor u. 13a, 1126 Hungary
+GEO:47.4971874;19.0075056
+SEQUENCE:217607684
+STATUS:TENTATIVE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20261204T183000Z
+DTEND:20261204T213000Z
+DTSTAMP:20261123T143444Z
+ORGANIZER;CN="Zsófia Nyul":MAILTO:calendar-invite@lu.ma
+UID:evt-OKA1ieZmJFkKJzG@events.lu.ma
+SUMMARY:📽️PSYNEMA festive: Last Christmas at Okūma
+DESCRIPTION:Get up-to-date information at: https://luma.com/65x5ogri\n\nAd
+ dress:\nOkūma - Tea House & Social Club\nBudapest, Hungary\n\n✨A privat
+ e screening, a grounding tea ceremony and a psychologist-led conversation,
+  in one of Budapest’s most beautiful hidden tea houses.✨\nChristmas is
+  meant to be the most wonderful time of the year. Yet so many of us feel a
+  little out of place in this season…\nMaybe you live between two countri
+ es and neither quite feels like home. Maybe you’ve moved back, only to f
+ ind that home has moved on without you. Or maybe you’re looking at the l
+ ife you have and wondering when exactly you were supposed to have it all f
+ igured out.\nThis December, PSYNEMA, where film meets psychology, comes to
+  Budapest…\n\nHosted by Zsófia Nyul & Anna Boldog
+LOCATION:Okūma - Tea House & Social Club, Budapest, Vörösmarty u. 19, 1
+ 074 Hungary
+GEO:47.5049212;19.069343
+SEQUENCE:217607684
+STATUS:TENTATIVE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20261206T090000Z
+DTEND:20261206T103000Z
+DTSTAMP:20261123T143444Z
+ORGANIZER;CN="Botond Santa":MAILTO:calendar-invite@lu.ma
+UID:evt-azxeAi1t0uDrfzw@events.lu.ma
+SUMMARY:Mikulás Fizika - Härtlein Károly kísérleti bemutatója
+DESCRIPTION:Get up-to-date information at: https://luma.com/3wxv932k\n\nAd
+ dress:\nBME F29-es terem\nBudapest\nHungary\n\nÜnnepeld a Mikulást látv
+ ányos fizikai kísérletekkel! 🎅🏼\nHärtlein Károly mesteroktató 
+ egy szórakoztató és izgalmas kísérleti bemutatóval és előadással 
+ készül minden fizika iránt érdeklődő számára!\n❗️Figyelem, az 
+ esemény vasárnap délelőtt 10:00 órakor lesz❗️\nVárunk szeretette
+ l 🌟\n\nHosted by Botond Santa
+LOCATION:BME F29-es terem, Budapest, Budafoki út 8, 1111 Hungary
+GEO:47.4797631;19.0540484
+SEQUENCE:217607684
+STATUS:TENTATIVE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20261210T180000Z
+DTEND:20261210T220000Z
+DTSTAMP:20261123T143444Z
+ORGANIZER;CN="Running Latte Club":MAILTO:calendar-invite@lu.ma
+UID:evt-lZzZ2ShEDU4hq3S@events.lu.ma
+SUMMARY:🎄 RLC Runsmas Party - Pace Break N°06
+DESCRIPTION:Get up-to-date information at: https://luma.com/kull7jns\n\nAd
+ dress:\nTime Out Market Budapest\nBudapest, Hungary\n\nLimited spots; regi
+ ster in time!\nRunsmas Pace Break N°06 is our well-deserved night off the
+  track – a relaxed evening to connect, unwind, and celebrate the friends
+ hips we've built through every mile. No running shoes required, just good 
+ vibes, great conversations, and a little fun outside the usual pace. Dress
+  up, don't be late, have a nice dinner and fun together! 😊\n🕚 Starts
+  at: 7 PM\n🕚 Ends at: 11 PM\n💁🏻‍♂️ Spots: Private area, wit
+ h tables and seats reserved \n📍 Location: Time Out Market Budapest - 1 
+ free Undone alcohol free cocktail for each member\n🎲 Games & Prizes: Ex
+ pect a…\n\nHosted by Running Latte Club
+LOCATION:Time Out Market Budapest, Budapest, Blaha Lujza tér 1, 1085 Hung
+ ary
+GEO:47.496341199999996;19.068943
+SEQUENCE:217607684
+STATUS:TENTATIVE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20261213T153000Z
+DTEND:20261213T183000Z
+DTSTAMP:20261123T143444Z
+ORGANIZER;CN="Keely from Epic Llama":MAILTO:calendar-invite@lu.ma
+UID:evt-RpsrODuMHeR1510@events.lu.ma
+SUMMARY:⛄️ F*ck the Small Talk: Budapest #8
+DESCRIPTION:Get up-to-date information at: https://luma.com/ftst8budapest
+ \n\nAddress:\nCheck event page for more details.\n\nCan't make it/event so
+ ld out? Sign up here and we'll let you know about the next one!\nAfter tra
+ veling around the world from Berlin to London to Lisbon to Malta to Mexico
+  City, we're now landed in Budapest for the first season! 😎\n📦 WHAT'
+ S THIS ABOUT?\nF*ck the Small Talk is a one-of-a-kind social experience wh
+ ere strangers come together for an evening of meaningful, fun, and deep co
+ nversation. It’s also just a different & cool way of meeting new people 
+ by getting out of your comfort zone and skipping the small talk!\nJoin us 
+ for an evening of games, talks, and connections with friends you…\n\nHos
+ ted by Keely from Epic Llama
+LOCATION:https://luma.com/event/evt-RpsrODuMHeR1510
+GEO:47.503201836267785;19.060061475441813
+SEQUENCE:217607684
+STATUS:TENTATIVE
+END:VEVENT
+END:VCALENDAR

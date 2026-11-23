@@ -13,7 +13,8 @@
     "e2e": "vitest run --config vitest.e2e.config.ts",
     "scout": "tsx --env-file-if-exists=.env src/main.ts",
     "replay": "tsx src/main.ts --replay test/fixtures/replay-basic",
-    "google:auth": "tsx --env-file-if-exists=.env src/google-auth.ts"
+    "google:auth": "tsx --env-file-if-exists=.env src/google-auth.ts",
+    "telegram:webhook": "tsx --env-file-if-exists=.env src/set-webhook.ts"
   },
   "keywords": [],
   "author": "",
