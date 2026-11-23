@@ -3,11 +3,14 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { formatAlert } from "./alert.js";
+import { keyboardFor } from "./buttons.js";
 import {
   checkCalendar,
   FakeCalendar,
   GoogleCalendar,
+  recordedCalendar,
   UnconfiguredCalendar,
+  type BusyEvent,
   type CalendarClient,
   type CalendarStatus,
 } from "./calendar.js";
@@ -18,6 +21,7 @@ import { applyRules } from "./filter.js";
 import { FetchHttp, ReplayHttp, type Http } from "./http.js";
 import { AnthropicLlm, ReplayLlm, type LlmClient } from "./llm.js";
 import { normalizeItem } from "./normalize.js";
+import { SETTING_TENTATIVE_HOLD } from "./settings.js";
 import { buildSources } from "./sources/index.js";
 import type { Source } from "./sources/types.js";
 import { FakeMessenger, TelegramError, TelegramMessenger, type Messenger } from "./telegram.js";
@@ -94,6 +98,13 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
   }
 
   try {
+    // Published every run, so the Worker follows the latest criteria.yaml.
+    await store.saveSetting(
+      SETTING_TENTATIVE_HOLD,
+      String(criteria.calendar.tentativeHoldOnApply),
+      startedAt,
+    );
+
     for (const event of survivors) {
       if ((await store.insertIfNew(event, "pending_extraction", startedAt)) !== null) itemsNew++;
     }
@@ -145,7 +156,11 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
       }
       let sent;
       try {
-        sent = await messenger.send(html);
+        // A just-alerted event is `new` with no calendar entry: Going/I applied, Remind me, Not interested.
+        sent = await messenger.send(
+          html,
+          keyboardFor({ ...event, calendarState: null, calendarEventId: null }, null),
+        );
       } catch (error) {
         const failure = error instanceof TelegramError ? error.failure : "systemic";
         errors.push(`alert for event ${String(event.id)}: ${message(error)}`);
@@ -236,7 +251,7 @@ export async function createReplayDeps(
     http,
     llm: new ReplayLlm(replayDir),
     messenger: new FakeMessenger(),
-    calendar: new FakeCalendar(replayDir),
+    calendar: new FakeCalendar(await loadRecordedBusy(replayDir)),
     now: () => now,
     mode: "replay",
   };
@@ -291,6 +306,18 @@ export async function createLiveDeps(
     now: () => new Date(),
     mode: "live",
   };
+}
+
+/** Busy blocks from `<dir>/calendar.json` (an empty calendar when the file is missing). */
+export async function loadRecordedBusy(dir: string): Promise<BusyEvent[]> {
+  let text: string;
+  try {
+    text = await readFile(join(dir, "calendar.json"), "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    throw error;
+  }
+  return recordedCalendar.parse(JSON.parse(text)).busy;
 }
 
 export function replayCriteriaPath(replayDir: string): string {

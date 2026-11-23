@@ -1,4 +1,4 @@
-import type { EventType } from "./config.js";
+import type { EventType } from "./event-type.js";
 
 export type LocationTier = "online" | "local" | "country" | "abroad";
 export type AccessType = "open" | "application" | "invite";
@@ -85,12 +85,31 @@ export const NO_DETAILS: EventDetails = {
 
 /**
  * pending_extraction → new (alerted) | below_threshold | closed (deadline passed or ended per the page)
- * | extraction_failed (the LLM kept failing on this page).
+ * | extraction_failed (the LLM kept failing on this page). After the alert, my button presses move
+ * it through the status machine (src/status.ts).
  */
 export type EventStatus =
-  "pending_extraction" | "new" | "below_threshold" | "closed" | "extraction_failed";
+  | "pending_extraction"
+  | "new"
+  | "below_threshold"
+  | "closed"
+  | "extraction_failed"
+  | InteractiveStatus;
+
+/** Statuses only button presses reach (SPEC "Event status machine"). */
+export type InteractiveStatus =
+  "going" | "watching" | "dismissed" | "awaiting_result" | "accepted" | "rejected";
 
 export interface StoredEvent extends ScoutedEvent, EventDetails {
   id: number;
   status: string;
+}
+
+/** What the Google Calendar holds for an event: a tentative "Applied" hold or the confirmed entry. */
+export type CalendarState = "tentative" | "confirmed";
+
+/** An event as the webhook sees it: with the calendar entry it created, if any. */
+export interface ActionableEvent extends StoredEvent {
+  calendarEventId: string | null;
+  calendarState: CalendarState | null;
 }

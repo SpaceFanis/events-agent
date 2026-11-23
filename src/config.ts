@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { parse, YAMLError } from "yaml";
 import { z } from "zod";
+import { eventTypeSchema } from "./event-type.js";
 
 function isValidTimeZone(timeZone: string): boolean {
   try {
@@ -11,18 +12,7 @@ function isValidTimeZone(timeZone: string): boolean {
   }
 }
 
-export const eventTypeSchema = z.enum([
-  "hackathon",
-  "conference",
-  "competition",
-  "meetup",
-  "workshop",
-  "fellowship",
-  "summer_school",
-  "other",
-]);
-
-export type EventType = z.infer<typeof eventTypeSchema>;
+export { eventTypeSchema, type EventType } from "./event-type.js";
 
 const minScore = z.number().min(0).max(10);
 

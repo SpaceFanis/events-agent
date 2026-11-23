@@ -25,6 +25,11 @@ if (values.replay === undefined) {
   const deps = await createReplayDeps(values.replay);
   await run(deps, () => {
     // Show what would have gone to Telegram.
-    for (const sent of deps.messenger.sent) console.error(`--- telegram ---\n${sent.html}\n`);
+    for (const sent of deps.messenger.sent) {
+      const buttons = (sent.keyboard ?? [])
+        .map((row) => row.map((button) => `[${button.text}]`).join(" "))
+        .join("\n");
+      console.error(`--- telegram ---\n${sent.html}\n${buttons}\n`);
+    }
   });
 }
