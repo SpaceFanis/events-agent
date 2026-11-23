@@ -3,7 +3,20 @@
  * Times are UTC ISO strings; `events.timezone` holds the event's IANA zone.
  */
 /** Bump on any schema change and add a migration; migrate() refuses unknown versions. */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
+
+/**
+ * The schema version, one row. Turso's server refuses `PRAGMA user_version = N`, so since
+ * version 5 the version lives here; versions 1–4 (local databases only) are read from the PRAGMA.
+ */
+const SCHEMA_META = `CREATE TABLE IF NOT EXISTS schema_meta (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  version INTEGER NOT NULL
+)`;
+
+/** Records SCHEMA_VERSION; runs in the same write batch as the schema change it describes. */
+export const SET_SCHEMA_VERSION = `INSERT INTO schema_meta (id, version) VALUES (1, ${String(SCHEMA_VERSION)})
+  ON CONFLICT (id) DO UPDATE SET version = excluded.version`;
 
 /**
  * Consecutive failed fetches per source adapter (by its configured name). Reset by a success;
@@ -142,6 +155,7 @@ export const SCHEMA: readonly string[] = [
   ACTIONS_INDEX,
   SETTINGS,
   SOURCE_HEALTH,
+  SCHEMA_META,
 ];
 
 /** Statements that bring a database from version N-1 up to N, keyed by N. */
@@ -164,4 +178,5 @@ export const MIGRATIONS: Readonly<Record<number, readonly string[]>> = {
     SETTINGS,
   ],
   4: [SOURCE_HEALTH],
+  5: [SCHEMA_META],
 };

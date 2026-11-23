@@ -1,4 +1,4 @@
-import { createClient } from "@libsql/client";
+import { createClient, type Client, type InStatement, type TransactionMode } from "@libsql/client";
 import { describe, expect, it } from "vitest";
 import { parseCriteria } from "../src/config.js";
 import { LibsqlStore } from "../src/db/store.js";
@@ -520,8 +520,50 @@ describe("LLM cost and caps", () => {
   });
 });
 
-/** Undoes what schema version 4 added (M5), leaving the version-3 shape. */
-const V4_ADDITIONS_DROPPED = ["DROP TABLE source_health"];
+/** Undoes what schema version 5 added (the version table), leaving the version-4 shape. */
+const V5_ADDITIONS_DROPPED = ["DROP TABLE schema_meta"];
+
+/** Undoes what schema versions 4 (M5) and 5 added, leaving the version-3 shape. */
+const V4_ADDITIONS_DROPPED = [...V5_ADDITIONS_DROPPED, "DROP TABLE source_health"];
+
+async function metaVersion(client: Client): Promise<unknown> {
+  return (await client.execute("SELECT version FROM schema_meta WHERE id = 1")).rows[0]?.[
+    "version"
+  ];
+}
+
+/**
+ * A client that behaves like Turso's server: it refuses to set `PRAGMA user_version`
+ * ("SQL not allowed statement"), in a batch or alone.
+ */
+function tursoLike(client: Client): Client {
+  const refused = (sql: string): boolean => /^\s*PRAGMA\s+user_version\s*=/i.test(sql);
+  const sqlOf = (stmt: InStatement): string => (typeof stmt === "string" ? stmt : stmt.sql);
+  return new Proxy(client, {
+    get(target, property, receiver) {
+      if (property === "batch") {
+        return (stmts: InStatement[], mode?: TransactionMode) => {
+          if (stmts.some((stmt) => refused(sqlOf(stmt)))) {
+            return Promise.reject(new Error("SQL_PARSE_ERROR: SQL not allowed statement"));
+          }
+          return target.batch(stmts, mode);
+        };
+      }
+      if (property === "execute") {
+        return (stmt: InStatement) => {
+          if (refused(sqlOf(stmt))) {
+            return Promise.reject(new Error("SQL_PARSE_ERROR: SQL not allowed statement"));
+          }
+          return target.execute(stmt);
+        };
+      }
+      const value: unknown = Reflect.get(target, property, receiver);
+      if (typeof value !== "function") return value;
+      const method = value as (...args: unknown[]) => unknown;
+      return method.bind(target);
+    },
+  });
+}
 
 /** Undoes what schema versions 3 (M4) and 4 added, leaving the version-2 shape. */
 const V3_ADDITIONS_DROPPED = [
@@ -567,8 +609,7 @@ describe("schema migration", () => {
     const store = new LibsqlStore(client);
     await store.migrate();
     await store.migrate(); // idempotent
-    const version = await client.execute("PRAGMA user_version");
-    expect(version.rows[0]?.["user_version"]).toBe(SCHEMA_VERSION);
+    expect(await metaVersion(client)).toBe(SCHEMA_VERSION);
     expect(await store.llmSpendSince(new Date(0))).toBe(0);
     // M1 stored it as `new` but never alerted it: it must be extracted before any alert.
     expect(await store.eventsAwaitingAlert(now, 3, 10)).toEqual([]);
@@ -577,7 +618,38 @@ describe("schema migration", () => {
     ]);
     store.close();
   });
-  it("upgrades a version-3 database to 4: source health, events kept", async () => {
+  it("creates a fresh database on a Turso-like server that refuses PRAGMA writes", async () => {
+    const client = tursoLike(createClient({ url: ":memory:" }));
+    const store = new LibsqlStore(client);
+    await store.migrate();
+    await store.migrate(); // idempotent
+    await store.checkSchema();
+    expect(await metaVersion(client)).toBe(SCHEMA_VERSION);
+    store.close();
+  });
+  it("upgrades a version-4 database (PRAGMA-versioned) to the schema_meta table", async () => {
+    const raw = createClient({ url: ":memory:" });
+    await raw.batch(
+      [
+        ...SCHEMA,
+        ...V5_ADDITIONS_DROPPED,
+        `INSERT INTO events (source, source_id, canonical_url, title, type, timezone, is_online, location_tier, status, first_seen_at, updated_at)
+         VALUES ('devpost', '1', 'https://x.com/', 'Old', 'hackathon', 'UTC', 1, 'online', 'going', 'a', 'a')`,
+        "PRAGMA user_version = 4",
+      ],
+      "write",
+    );
+    // From here on, no PRAGMA writes: the upgrade must work on Turso too.
+    const client = tursoLike(raw);
+    const store = new LibsqlStore(client);
+    await expect(store.checkSchema()).rejects.toThrow(/unversioned, code expects 5/);
+    await store.migrate();
+    await store.checkSchema();
+    expect(await metaVersion(client)).toBe(SCHEMA_VERSION);
+    expect(await store.getEvent(1)).toMatchObject({ title: "Old", status: "going" });
+    store.close();
+  });
+  it("upgrades a version-3 database to 5: source health, events kept", async () => {
     const client = createClient({ url: ":memory:" });
     await client.batch(
       [
@@ -590,7 +662,7 @@ describe("schema migration", () => {
       "write",
     );
     const store = new LibsqlStore(client);
-    await expect(store.checkSchema()).rejects.toThrow(/version 3, code expects 4/);
+    await expect(store.checkSchema()).rejects.toThrow(/unversioned, code expects 5/);
     await store.migrate();
     await store.checkSchema();
     expect(await store.getEvent(1)).toMatchObject({ title: "Old", status: "watching" });
@@ -600,7 +672,7 @@ describe("schema migration", () => {
     });
     store.close();
   });
-  it("upgrades a version-2 database to 4: calendar columns, settings, events kept", async () => {
+  it("upgrades a version-2 database to 5: calendar columns, settings, events kept", async () => {
     const client = createClient({ url: ":memory:" });
     await client.batch(
       [
@@ -613,7 +685,7 @@ describe("schema migration", () => {
       "write",
     );
     const store = new LibsqlStore(client);
-    await expect(store.checkSchema()).rejects.toThrow(/version 2, code expects 4/);
+    await expect(store.checkSchema()).rejects.toThrow(/unversioned, code expects 5/);
     await store.migrate();
     await store.checkSchema();
     expect(await store.getEvent(1)).toMatchObject({

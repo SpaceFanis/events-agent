@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseCriteria } from "../src/config.js";
 import { createClient } from "@libsql/client";
-import { LibsqlStore, openStore } from "../src/db/store.js";
+import { LibsqlStore, openStore, SchemaMismatchError } from "../src/db/store.js";
 import { normalizeItem } from "../src/normalize.js";
 import { TelegramError, TelegramMessenger } from "../src/telegram.js";
 import { NO_DETAILS, type SourceItem } from "../src/types.js";
@@ -227,8 +227,31 @@ describe("TelegramMessenger", () => {
 describe("migrate", () => {
   it("refuses a database with an unknown schema version", async () => {
     const client = createClient({ url: ":memory:" });
-    await client.execute("PRAGMA user_version = 99");
+    await client.batch(
+      [
+        "CREATE TABLE schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)",
+        "INSERT INTO schema_meta (id, version) VALUES (1, 99)",
+      ],
+      "write",
+    );
     await expect(new LibsqlStore(client).migrate()).rejects.toThrow(/schema is version 99/);
+    client.close();
+  });
+
+  it("refuses an unknown legacy (PRAGMA) schema version", async () => {
+    const client = createClient({ url: ":memory:" });
+    await client.batch(["CREATE TABLE messages (id INTEGER)", "PRAGMA user_version = 99"], "write");
+    await expect(new LibsqlStore(client).migrate()).rejects.toThrow(/schema is version 99/);
+    client.close();
+  });
+
+  it("refuses a version table without its row", async () => {
+    const client = createClient({ url: ":memory:" });
+    await client.execute("CREATE TABLE schema_meta (id INTEGER PRIMARY KEY, version INTEGER)");
+    const store = new LibsqlStore(client);
+    await expect(store.migrate()).rejects.toThrow(/no version row/);
+    // The Worker sees a schema mismatch (500, Telegram redelivers), not a DB failure.
+    await expect(store.checkSchema()).rejects.toBeInstanceOf(SchemaMismatchError);
     client.close();
   });
 
