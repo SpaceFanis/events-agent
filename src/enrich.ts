@@ -405,7 +405,7 @@ export async function enrichPending(
       deps,
       `pages-blocked:${source}:${startedAt.toISOString().slice(0, 7)}`,
       escapeHtml(
-        `⚠️ Events agent: ${String(count)} event pages from source "${source}" refused us this run (HTTP 401/403), so those events can't be checked or alerted. They are retried every run.`,
+        `⚠️ Hackscout: ${String(count)} event pages from source "${source}" refused us this run (HTTP 401/403), so those events can't be checked or alerted. They are retried every run.`,
       ),
       errors,
     );
@@ -427,8 +427,8 @@ async function sendCapNotice(
     cap === "budget" ? `budget:${now.toISOString().slice(0, 7)}` : `calls:run-${String(runId)}`;
   const text =
     cap === "budget"
-      ? `⚠️ Events agent: the monthly LLM budget ($${limits.monthlyBudgetUsd.toFixed(2)}) is reached. Extraction is paused until next month; raise limits.monthlyBudgetUsd to resume sooner.`
-      : `⚠️ Events agent: hit the cap of ${String(limits.maxLlmCallsPerRun)} LLM calls this run. The remaining events wait for the next run.`;
+      ? `⚠️ Hackscout: the monthly LLM budget ($${limits.monthlyBudgetUsd.toFixed(2)}) is reached. Extraction is paused until next month; raise limits.monthlyBudgetUsd to resume sooner.`
+      : `⚠️ Hackscout: hit the cap of ${String(limits.maxLlmCallsPerRun)} LLM calls this run. The remaining events wait for the next run.`;
   errors.push(`LLM ${cap} cap reached after ${String(budget.calls)} calls`);
   await sendNoticeOnce(deps, key, text, errors);
 }

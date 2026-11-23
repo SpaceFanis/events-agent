@@ -1,4 +1,4 @@
-# Events Agent
+# Hackscout
 
 A personal scout that checks hackathon and event platforms every day, keeps only what matches your criteria, works out the real dates, deadlines and how to apply, checks your Google Calendar for clashes, and sends you a Telegram message with buttons.
 

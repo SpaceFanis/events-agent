@@ -1,4 +1,4 @@
-# Events Agent — Spec
+# Hackscout — Spec
 
 ## Goal
 
