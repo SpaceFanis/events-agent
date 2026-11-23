@@ -9,7 +9,9 @@
     "check:fast": "npm run -s typecheck && npm run -s lint",
     "test": "vitest run",
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run -s check:fast && npm run -s test && npm run -s build",
+    "check": "npm run -s check:fast && npm run -s test && npm run -s build && npm run -s worker:bundle",
+    "worker:bundle": "wrangler deploy --dry-run --outdir dist/worker",
+    "worker:deploy": "wrangler deploy",
     "e2e": "vitest run --config vitest.e2e.config.ts",
     "scout": "tsx --env-file-if-exists=.env src/main.ts",
     "replay": "tsx src/main.ts --replay test/fixtures/replay-basic",
@@ -38,6 +40,7 @@
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.73.0",
-    "vitest": "^5.1.1"
+    "vitest": "^5.1.1",
+    "wrangler": "4.158.0"
   }
 }

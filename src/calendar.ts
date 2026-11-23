@@ -450,22 +450,3 @@ export class FakeCalendar implements CalendarClient, CalendarWriter {
     return Promise.resolve();
   }
 }
-
-/** Without Google credentials: every check reads "couldn't check" and every write fails. */
-export class UnconfiguredCalendar implements CalendarClient, CalendarWriter {
-  busy(): Promise<BusyResult> {
-    return Promise.reject(notConfigured());
-  }
-  upsert(): Promise<void> {
-    return Promise.reject(notConfigured());
-  }
-  remove(): Promise<void> {
-    return Promise.reject(notConfigured());
-  }
-}
-
-function notConfigured(): CalendarError {
-  return new CalendarError(
-    "google calendar not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN)",
-  );
-}

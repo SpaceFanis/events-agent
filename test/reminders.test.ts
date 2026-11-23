@@ -216,7 +216,14 @@ describe("sendReminders", () => {
       chatId: "c",
       send: () => Promise.reject(new TelegramError("telegram down", "systemic")),
     };
-    expect(await sendReminders({ store, messenger: down, now: () => now }, errors)).toBe(0);
+    let outages = 0;
+    const onOutage = (): void => {
+      outages++;
+    };
+    expect(await sendReminders({ store, messenger: down, now: () => now }, errors, onOutage)).toBe(
+      0,
+    );
+    expect(outages).toBe(1);
     expect(store.rows.size).toBe(0);
     expect(errors).toEqual(["reminder for event 7: telegram down"]);
 

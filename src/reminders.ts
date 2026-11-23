@@ -138,7 +138,12 @@ function message(error: unknown): string {
  * outage releases the claim and stops (retried next run); a timeout (maybe delivered) or a message
  * Telegram rejects keeps it, so it is not sent again. Returns how many were sent.
  */
-export async function sendReminders(deps: ReminderDeps, errors: string[]): Promise<number> {
+export async function sendReminders(
+  deps: ReminderDeps,
+  errors: string[],
+  /** Called when Telegram is down or misconfigured (the run should be reported as failed). */
+  onOutage: () => void = () => undefined,
+): Promise<number> {
   const { store, messenger } = deps;
   const now = deps.now();
   let sent = 0;
@@ -162,6 +167,7 @@ export async function sendReminders(deps: ReminderDeps, errors: string[]): Promi
       errors.push(`${label}: ${message(error)}`);
       const failure = error instanceof TelegramError ? error.failure : "systemic";
       if (failure === "systemic") {
+        onOutage();
         await store.releaseReminder(claim);
         break;
       }

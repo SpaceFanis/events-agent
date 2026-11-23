@@ -19,6 +19,21 @@ describe("parseCriteria", () => {
     expect(() => parseCriteria("profile: [unclosed")).toThrow(/not valid YAML/);
   });
 
+  it("gives only the position of a YAML error, never the source text (Actions logs are public)", () => {
+    const text = "profile: my private profile text\nhome: [Athens\nx: : y";
+    let caught: unknown;
+    try {
+      parseCriteria(text);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ConfigError);
+    const messageText = caught instanceof Error ? caught.message : "";
+    expect(messageText).toMatch(/at line \d+, column \d+/);
+    expect(messageText).not.toContain("private");
+    expect(messageText).not.toContain("Athens");
+  });
+
   it("takes feed sources with a required name and optional type, and refuses duplicates", () => {
     const base = `profile: x\ninterests: [ai]\neventTypes: [hackathon]\nhome: {city: A, country: B, timezone: UTC}\n`;
     const criteria = parseCriteria(
