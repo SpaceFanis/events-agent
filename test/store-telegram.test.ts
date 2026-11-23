@@ -4,7 +4,7 @@ import { createClient } from "@libsql/client";
 import { LibsqlStore, openStore } from "../src/db/store.js";
 import { normalizeItem } from "../src/normalize.js";
 import { TelegramError, TelegramMessenger } from "../src/telegram.js";
-import type { SourceItem } from "../src/types.js";
+import { NO_DETAILS, type SourceItem } from "../src/types.js";
 
 const criteria = parseCriteria(`
 profile: x
@@ -50,7 +50,7 @@ describe("LibsqlStore", () => {
     expect(await store.insertIfNew(relisted, "new", now)).toBeNull();
 
     const pending = await store.eventsAwaitingAlert(now, 3, 10);
-    expect(pending).toEqual([{ ...event, id: 1, status: "new" }]);
+    expect(pending).toEqual([{ ...event, ...NO_DETAILS, id: 1, status: "new" }]);
 
     const claim = await store.claimAlert(1, "c", now);
     expect(claim).not.toBeNull();

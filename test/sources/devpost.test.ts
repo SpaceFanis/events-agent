@@ -13,6 +13,9 @@ class MapHttp implements Http {
       ? Promise.reject(new Error(`unexpected ${url}`))
       : Promise.resolve(body);
   }
+  getText(url: string): Promise<string> {
+    return this.getJson(url).then((body) => JSON.stringify(body));
+  }
 }
 
 async function recordedPage(): Promise<unknown> {

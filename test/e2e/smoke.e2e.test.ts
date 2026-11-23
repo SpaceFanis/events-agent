@@ -16,10 +16,10 @@ function override<K extends keyof Store>(store: Store, key: K, impl: Store[K]): 
 }
 const FIXTURE = "test/fixtures/replay-basic";
 
-// docs/SPEC.md "End-to-end acceptance test", M1 slice: fetch → rules → dedupe → Telegram.
-// Step 4's abroad threshold (score), calendar and buttons arrive with M2–M4; (d) is still alerted in M1.
+// docs/SPEC.md "End-to-end acceptance test", steps 1–5 (calendar and buttons arrive in M3–M4):
+// fetch → rules → dedupe → page extraction + score → Telegram.
 describe("scout pipeline in replay mode", () => {
-  it("alerts rule survivors once, then dedupes on the next run", async () => {
+  it("alerts the two worthwhile events with verified details, then dedupes", async () => {
     const deps = await createReplayDeps(FIXTURE);
     try {
       const first = await runPipeline(deps);
@@ -29,33 +29,50 @@ describe("scout pipeline in replay mode", () => {
         itemsFetched: 4,
         itemsFiltered: 1,
         itemsNew: 3,
-        alertsSent: 3,
-        llmCalls: 0,
-        costUsd: 0,
+        // (a), (b) and (d) on Haiku; (b)'s unsure deadline escalates once to Sonnet.
+        llmCalls: 4,
+        alertsSent: 2,
+        costUsd: 0.014675,
         errors: [],
       });
+      expect(deps.llm.requests.map((r) => `${r.model} ${r.url}`)).toEqual([
+        "claude-haiku-5-5 https://openai-builders.devpost.com/",
+        "claude-haiku-5-5 https://athens-robotics.devpost.com/",
+        "claude-sonnet-5-5 https://athens-robotics.devpost.com/",
+        "claude-haiku-5-5 https://berlin-ai-meetup.devpost.com/",
+      ]);
+      // The page's own text reached the model; its scripts did not.
+      expect(deps.llm.requests[0]?.prompt).toContain("Registration is open to everyone.");
+      expect(deps.llm.requests[0]?.prompt).not.toContain("Ignore previous instructions");
 
       const sent = deps.messenger.sent.map((message) => message.html);
-      expect(sent).toHaveLength(3);
-      const [online, athens, berlin] = sent;
-      // (a) online AI hackathon, open registration
+      expect(sent).toHaveLength(2);
+      const [online, athens] = sent;
+      // (a) online AI hackathon, open registration, times in the zone the page states
       expect(online).toContain("<b>Open AI Builders Hackathon</b>");
       expect(online).toContain("🎟 Access: Open");
-      expect(online).toContain(
-        '<a href="https://openai-builders.devpost.com/?utm_source=devpost">',
+      expect(online).toContain('<a href="https://openai-builders.devpost.com/register">');
+      expect(online).toContain("🗓 10 Dec 2026, 18:00 – 15 Jan 2027, 17:00 (America/New_York)");
+      expect(online).toContain("⭐ Worth it: 8/10");
+      expect(online).not.toContain("unverified");
+      // (b) application in Athens: deadline and results date, application form linked on the page
+      expect(athens).toContain(
+        "🎟 Access: Application required · deadline 31 Jan 2027, 23:59 · results 10 Feb 2027",
       );
-      expect(online).toContain("🗓 10 Dec 2026 – 15 Jan 2027 (Europe/Athens)");
-      // (b) in-person in Athens
-      expect(athens).toContain("📍 Athens, Greece");
-      // (c) crypto: dropped by the exclude rule
+      expect(athens).toContain(
+        '<a href="https://forms.example.org/athens-robotics-apply">Apply</a>',
+      );
+      // Sonnet's travel-support quote is not on the page: not shown, flagged instead.
+      expect(athens).not.toContain("fully covered");
+      expect(athens).toContain("⚠️ unverified: travel support");
+      // (c) crypto: dropped by the exclude rule, never sent to the LLM
       expect(sent.join("\n")).not.toContain("Crypto");
-      // (d) abroad: no zone known yet, so shown in UTC and flagged
-      expect(berlin).toContain("(UTC)");
-      expect(berlin).toContain("⚠️ unverified: access, time, timezone");
+      // (d) Berlin meetup scored 6: below the abroad minimum of 9
+      expect(sent.join("\n")).not.toContain("Berlin");
 
       const second = await runPipeline(deps);
-      expect(second).toMatchObject({ itemsFetched: 4, itemsNew: 0, alertsSent: 0 });
-      expect(deps.messenger.sent).toHaveLength(3);
+      expect(second).toMatchObject({ itemsNew: 0, llmCalls: 0, alertsSent: 0, costUsd: 0 });
+      expect(deps.messenger.sent).toHaveLength(2);
     } finally {
       deps.store.close();
     }
@@ -78,7 +95,7 @@ describe("scout pipeline in replay mode", () => {
       }
 
       const retried = await runPipeline({ ...deps, messenger: realMessenger });
-      expect(retried).toMatchObject({ itemsNew: 0, alertsSent: 3, errors: [] });
+      expect(retried).toMatchObject({ itemsNew: 0, llmCalls: 0, alertsSent: 2, errors: [] });
       expect((await runPipeline(deps)).alertsSent).toBe(0);
     } finally {
       deps.store.close();
@@ -98,7 +115,7 @@ describe("scout pipeline in replay mode", () => {
     try {
       for (let run = 0; run < MAX_ALERT_ATTEMPTS; run++) {
         // Message-specific: the loop carries on to the next event.
-        expect((await runPipeline({ ...deps, messenger: rejects })).errors).toHaveLength(3);
+        expect((await runPipeline({ ...deps, messenger: rejects })).errors).toHaveLength(2);
       }
       expect((await runPipeline(deps)).alertsSent).toBe(0);
     } finally {
@@ -108,9 +125,9 @@ describe("scout pipeline in replay mode", () => {
     const later = await createReplayDeps(FIXTURE);
     try {
       await runPipeline({ ...later, messenger: down });
-      // Telegram back after the online hackathon (ends 15 Jan 2027) is over: only the other two go out.
+      // Telegram back after the online hackathon (ends 15 Jan 2027) is over: only (b) goes out.
       const after = await runPipeline({ ...later, now: () => new Date("2027-01-20T09:00:00Z") });
-      expect(after.alertsSent).toBe(2);
+      expect(after.alertsSent).toBe(1);
       expect(later.messenger.sent.map((m) => m.html).join("\n")).not.toContain("Open AI Builders");
     } finally {
       later.store.close();
@@ -127,8 +144,8 @@ describe("scout pipeline in replay mode", () => {
       expect(deps.messenger.sent).toHaveLength(1);
       // The claim stays, so the next run does not send that event again.
       const next = await runPipeline(deps);
-      expect(next.alertsSent).toBe(2);
-      expect(new Set(deps.messenger.sent.map((m) => m.html)).size).toBe(3);
+      expect(next.alertsSent).toBe(1);
+      expect(new Set(deps.messenger.sent.map((m) => m.html)).size).toBe(2);
     } finally {
       deps.store.close();
     }
@@ -146,7 +163,7 @@ describe("scout pipeline in replay mode", () => {
     };
     try {
       const first = await runPipeline({ ...deps, messenger: flaky });
-      expect(first.alertsSent).toBe(2);
+      expect(first.alertsSent).toBe(1);
       const second = await runPipeline(deps);
       expect(second.alertsSent).toBe(0);
       expect(second.errors).toEqual([expect.stringMatching(/alert for event 1 is unknown since/)]);
@@ -175,7 +192,7 @@ describe("scout pipeline in replay mode", () => {
       const later = new Date(deps.now().getTime() + 20 * 60 * 1000);
       const next = await runPipeline({ ...deps, now: () => later });
       expect(next.errors).toEqual([expect.stringMatching(/alert for event 1 is claimed since/)]);
-      expect(next.alertsSent).toBe(2);
+      expect(next.alertsSent).toBe(1);
     } finally {
       deps.store.close();
     }
@@ -190,7 +207,7 @@ describe("scout pipeline in replay mode", () => {
     );
     try {
       const first = await runPipeline({ ...deps, store: badZone });
-      expect(first.alertsSent).toBe(2);
+      expect(first.alertsSent).toBe(1);
       expect(first.errors).toEqual([expect.stringMatching(/event 1: cannot format/)]);
       // Counted as an attempt each time, so it is dropped after MAX_ALERT_ATTEMPTS.
       for (let run = 1; run < MAX_ALERT_ATTEMPTS; run++)
@@ -203,9 +220,9 @@ describe("scout pipeline in replay mode", () => {
 
   it("caps alerts per run and sends the rest next run", async () => {
     const deps = await createReplayDeps(FIXTURE);
-    const criteria = { ...deps.criteria, limits: { ...deps.criteria.limits, maxAlertsPerRun: 2 } };
+    const criteria = { ...deps.criteria, limits: { ...deps.criteria.limits, maxAlertsPerRun: 1 } };
     try {
-      expect((await runPipeline({ ...deps, criteria })).alertsSent).toBe(2);
+      expect((await runPipeline({ ...deps, criteria })).alertsSent).toBe(1);
       expect((await runPipeline({ ...deps, criteria })).alertsSent).toBe(1);
       expect((await runPipeline({ ...deps, criteria })).alertsSent).toBe(0);
     } finally {
@@ -217,9 +234,9 @@ describe("scout pipeline in replay mode", () => {
     const deps = await createReplayDeps(FIXTURE);
     try {
       const [a, b] = await Promise.all([runPipeline(deps), runPipeline(deps)]);
-      expect(a.alertsSent + b.alertsSent).toBe(3);
-      expect(new Set(deps.messenger.sent.map((m) => m.html)).size).toBe(3);
-      expect(deps.messenger.sent).toHaveLength(3);
+      expect(a.alertsSent + b.alertsSent).toBe(2);
+      expect(new Set(deps.messenger.sent.map((m) => m.html)).size).toBe(2);
+      expect(deps.messenger.sent).toHaveLength(2);
     } finally {
       deps.store.close();
     }
@@ -248,9 +265,9 @@ describe("scout pipeline in replay mode", () => {
     expect(summary).toMatchObject({
       mode: "replay",
       sources: 2,
-      alertsSent: 3,
-      llmCalls: 0,
-      costUsd: 0,
+      alertsSent: 2,
+      llmCalls: 4,
+      costUsd: 0.014675,
     });
   });
 });

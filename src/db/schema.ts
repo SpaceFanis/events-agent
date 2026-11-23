@@ -3,7 +3,21 @@
  * Times are UTC ISO strings; `events.timezone` holds the event's IANA zone.
  */
 /** Bump on any schema change and add a migration; migrate() refuses unknown versions. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+/** Cost log: one row per LLM call, paid or failed. The monthly budget cap sums this table. */
+const LLM_CALLS = `CREATE TABLE IF NOT EXISTS llm_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER REFERENCES runs (id),
+    url TEXT NOT NULL,
+    model TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    at TEXT NOT NULL
+  )`;
+const LLM_CALLS_INDEX = `CREATE INDEX IF NOT EXISTS llm_calls_at ON llm_calls (at)`;
 
 export const SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS events (
@@ -26,6 +40,7 @@ export const SCHEMA: readonly string[] = [
     location_tier TEXT NOT NULL,
     access_type TEXT,
     register_url TEXT,
+    register_steps TEXT,
     apply_deadline TEXT,
     results_date TEXT,
     cost TEXT,
@@ -37,6 +52,8 @@ export const SCHEMA: readonly string[] = [
     tags TEXT NOT NULL DEFAULT '[]',
     unverified_fields TEXT NOT NULL DEFAULT '[]',
     alert_attempts INTEGER NOT NULL DEFAULT 0,
+    -- LLM calls on this page that returned nothing usable (refusal, cut off, bad JSON).
+    extract_attempts INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     first_seen_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -63,11 +80,14 @@ export const SCHEMA: readonly string[] = [
     -- claimed: about to send; sent: confirmed; unknown: may have been delivered (timeout), not resent.
     state TEXT NOT NULL DEFAULT 'sent' CHECK (state IN ('claimed', 'sent', 'unknown')),
     claimed_at TEXT,
-    sent_at TEXT
+    sent_at TEXT,
+    -- Notices only: one message per key (e.g. budget:2026-11), so a cap notice is not repeated.
+    notice_key TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS messages_event ON messages (event_id, kind)`,
   // At most one alert per event, even if two runs overlap.
   `CREATE UNIQUE INDEX IF NOT EXISTS messages_one_alert ON messages (event_id) WHERE kind = 'alert'`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS messages_notice_key ON messages (notice_key) WHERE notice_key IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id INTEGER NOT NULL REFERENCES events (id),
@@ -94,4 +114,21 @@ export const SCHEMA: readonly string[] = [
     cost_usd REAL NOT NULL DEFAULT 0,
     errors TEXT NOT NULL DEFAULT '[]'
   )`,
+  LLM_CALLS,
+  LLM_CALLS_INDEX,
 ];
+
+/** Statements that bring a database from version N-1 up to N, keyed by N. */
+export const MIGRATIONS: Readonly<Record<number, readonly string[]>> = {
+  2: [
+    `ALTER TABLE events ADD COLUMN register_steps TEXT`,
+    `ALTER TABLE events ADD COLUMN extract_attempts INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE messages ADD COLUMN notice_key TEXT`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS messages_notice_key ON messages (notice_key) WHERE notice_key IS NOT NULL`,
+    LLM_CALLS,
+    LLM_CALLS_INDEX,
+    // M1 stored rule survivors as `new` without extraction; never alert those unextracted.
+    `UPDATE events SET status = 'pending_extraction'
+      WHERE status = 'new' AND id NOT IN (SELECT event_id FROM messages WHERE kind = 'alert' AND event_id IS NOT NULL)`,
+  ],
+};

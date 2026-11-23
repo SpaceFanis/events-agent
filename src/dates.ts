@@ -114,3 +114,24 @@ export function formatDate(utcIso: string, timeZone: string): string {
     year: "numeric",
   }).format(new Date(utcIso));
 }
+
+/** Formats a UTC instant as date and 24h time in `timeZone`, e.g. "30 Oct 2026, 18:00". */
+export function formatDateTime(utcIso: string, timeZone: string): string {
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(utcIso));
+  return `${formatDate(utcIso, timeZone)}, ${time}`;
+}
+
+/** The calendar date ("YYYY-MM-DD") of a UTC instant in `timeZone`. */
+export function localDate(utcIso: string, timeZone: string): IsoDate {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(utcIso));
+}

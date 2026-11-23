@@ -1,11 +1,14 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { formatAlert } from "./alert.js";
 import { loadCriteria, type Criteria } from "./config.js";
 import { openStore, type Store } from "./db/store.js";
+import { enrichPending } from "./enrich.js";
 import { applyRules } from "./filter.js";
-import { FetchHttp, ReplayHttp } from "./http.js";
+import { FetchHttp, ReplayHttp, type Http } from "./http.js";
+import { AnthropicLlm, ReplayLlm, type LlmClient } from "./llm.js";
 import { normalizeItem } from "./normalize.js";
 import { buildSources } from "./sources/index.js";
 import type { Source } from "./sources/types.js";
@@ -30,6 +33,9 @@ export interface PipelineDeps {
   sources: Source[];
   skippedSources: string[];
   store: Store;
+  /** Event pages for extraction (sources hold their own Http). */
+  http: Http;
+  llm: LlmClient;
   messenger: Messenger;
   now: () => Date;
   mode: RunSummary["mode"];
@@ -46,8 +52,8 @@ function message(error: unknown): string {
 }
 
 /**
- * One scouting pass: fetch → normalize → rule filter → dedupe/store → alert.
- * LLM extraction, scoring and the calendar check slot in between store and alert in M2–M3.
+ * One scouting pass: fetch → normalize → rule filter → dedupe/store → page extraction + score →
+ * alert. The calendar check (M3) slots in before the alert.
  */
 export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
   const { criteria, store, messenger } = deps;
@@ -58,6 +64,8 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
   let itemsFiltered = 0;
   let itemsNew = 0;
   let alertsSent = 0;
+  // Filled in by the extraction stage as it goes, so failed runs still record their spend.
+  const llm = { llmCalls: 0, costUsd: 0, extracted: 0 };
 
   // Each adapter fails alone; the run continues with the others.
   const survivors: ScoutedEvent[] = [];
@@ -78,8 +86,11 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
 
   try {
     for (const event of survivors) {
-      if ((await store.insertIfNew(event, "new", startedAt)) !== null) itemsNew++;
+      if ((await store.insertIfNew(event, "pending_extraction", startedAt)) !== null) itemsNew++;
     }
+
+    // Never alert from unextracted data: only events extraction moved to `new` reach the alert step.
+    await enrichPending(deps, runId, errors, llm);
 
     // Alert claims from earlier runs that were never confirmed (crash, timeout, failed write) need a
     // human look. Checked before this run claims anything; recent `claimed` rows may belong to an
@@ -151,7 +162,14 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
     await store
       .finishRun(
         runId,
-        { itemsFetched, itemsNew, itemsLlm: 0, alertsSent, costUsd: 0, errors },
+        {
+          itemsFetched,
+          itemsNew,
+          itemsLlm: llm.llmCalls,
+          alertsSent,
+          costUsd: llm.costUsd,
+          errors,
+        },
         deps.now(),
       )
       .catch((error: unknown) => {
@@ -166,9 +184,9 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
     itemsFetched,
     itemsFiltered,
     itemsNew,
-    llmCalls: 0,
+    llmCalls: llm.llmCalls,
     alertsSent,
-    costUsd: 0,
+    costUsd: Math.round(llm.costUsd * 1e6) / 1e6,
     errors,
   };
 }
@@ -178,21 +196,24 @@ const replayConfigSchema = z.strictObject({
   now: z.iso.datetime({ offset: true }),
 });
 
-/** Offline dependencies: recorded HTTP fixtures, in-memory DB, fake Telegram, frozen clock. */
+/** Offline dependencies: recorded HTTP and LLM fixtures, in-memory DB, fake Telegram, frozen clock. */
 export async function createReplayDeps(
   replayDir: string,
-): Promise<PipelineDeps & { messenger: FakeMessenger }> {
+): Promise<PipelineDeps & { messenger: FakeMessenger; llm: ReplayLlm }> {
   const criteria = await loadCriteria(replayCriteriaPath(replayDir));
   const config = replayConfigSchema.parse(
     JSON.parse(await readFile(join(replayDir, "replay.json"), "utf8")),
   );
   const now = new Date(config.now);
-  const { sources, skipped } = buildSources(criteria, new ReplayHttp(replayDir));
+  const http = new ReplayHttp(replayDir);
+  const { sources, skipped } = buildSources(criteria, http);
   return {
     criteria,
     sources,
     skippedSources: skipped,
     store: await openStore(":memory:"),
+    http,
+    llm: new ReplayLlm(replayDir),
     messenger: new FakeMessenger(),
     now: () => now,
     mode: "replay",
@@ -215,12 +236,16 @@ export async function createLiveDeps(
   const chatId = requireEnv(env, "TELEGRAM_CHAT_ID");
   const dbUrl = requireEnv(env, "TURSO_DATABASE_URL");
   const authToken = env.TURSO_AUTH_TOKEN;
-  const { sources, skipped } = buildSources(criteria, new FetchHttp());
+  const apiKey = requireEnv(env, "ANTHROPIC_API_KEY");
+  const http = new FetchHttp();
+  const { sources, skipped } = buildSources(criteria, http);
   return {
     criteria,
     sources,
     skippedSources: skipped,
     store: await openStore(dbUrl, authToken === "" ? undefined : authToken),
+    http,
+    llm: new AnthropicLlm(new Anthropic({ apiKey, timeout: 120_000 })),
     messenger: new TelegramMessenger(botToken, chatId),
     now: () => new Date(),
     mode: "live",

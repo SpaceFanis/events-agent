@@ -1,0 +1,98 @@
+{
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 2100,
+    "output_tokens": 650
+  },
+  "output": {
+    "organiser": {
+      "value": "Athena Robotics Lab",
+      "evidence": "Organised by Athena Robotics Lab",
+      "confidence": "high"
+    },
+    "start": {
+      "value": "2027-02-20T09:00",
+      "evidence": "February 20 - 22, 2027, starting 09:00",
+      "confidence": "high"
+    },
+    "end": {
+      "value": "2027-02-22T18:00",
+      "evidence": "ending 18:00 on February 22",
+      "confidence": "high"
+    },
+    "timezone": {
+      "value": "Europe/Athens",
+      "evidence": "(Athens time)",
+      "confidence": "high"
+    },
+    "location": {
+      "value": "Technopolis, Athens, Greece",
+      "evidence": "In person at Technopolis, Athens, Greece.",
+      "confidence": "high"
+    },
+    "city": {
+      "value": "Athens",
+      "evidence": "Athens, Greece",
+      "confidence": "high"
+    },
+    "country": {
+      "value": "Greece",
+      "evidence": "Athens, Greece",
+      "confidence": "high"
+    },
+    "attendance": {
+      "value": "in_person",
+      "evidence": "In person at Technopolis",
+      "confidence": "high"
+    },
+    "access": {
+      "value": "application",
+      "evidence": "Participation is by application: teams are selected by the organisers.",
+      "confidence": "high"
+    },
+    "register_url": {
+      "value": "https://forms.example.org/athens-robotics-apply",
+      "evidence": "Apply here",
+      "confidence": "high"
+    },
+    "register_steps": {
+      "value": "Apply as a team with the form linked on the page.",
+      "evidence": "Apply here",
+      "confidence": "high"
+    },
+    "apply_deadline": {
+      "value": "2027-01-31T23:59",
+      "evidence": "Applications close January 31, 2027 at 23:59",
+      "confidence": "low"
+    },
+    "results_date": {
+      "value": "2027-02-10",
+      "evidence": "Selected teams are notified by February 10, 2027.",
+      "confidence": "high"
+    },
+    "cost": {
+      "value": "None",
+      "evidence": "Participation fee: none.",
+      "confidence": "high"
+    },
+    "travel_support": {
+      "value": "Up to €300",
+      "evidence": "Travel grants: up to €300 for teams from outside Attica.",
+      "confidence": "high"
+    },
+    "prizes": {
+      "value": "€3,000",
+      "evidence": "€3,000",
+      "confidence": "high"
+    },
+    "eligibility": {
+      "value": "University students",
+      "evidence": "Open to university students.",
+      "confidence": "high"
+    },
+    "worth": {
+      "score": 9,
+      "reason": "Hands-on robotics competition in Athens with travel grants."
+    }
+  }
+}
