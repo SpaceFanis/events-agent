@@ -44,9 +44,11 @@ export const criteriaSchema = z.strictObject({
   calendar: z
     .strictObject({
       /** Add a tentative "Applied: …" hold when I press "I applied". */
-      tentativeHoldOnApply: z.boolean(),
+      tentativeHoldOnApply: z.boolean().default(false),
+      /** Google calendar ids checked for conflicts ("primary" is my main calendar). */
+      check: z.array(z.string().min(1)).min(1).default(["primary"]),
     })
-    .default({ tentativeHoldOnApply: false }),
+    .default({ tentativeHoldOnApply: false, check: ["primary"] }),
   minScore: z
     .strictObject({ local: minScore, country: minScore, abroad: minScore, online: minScore })
     .default({ local: 5, country: 7, abroad: 9, online: 6 }),

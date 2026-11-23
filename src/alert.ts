@@ -1,3 +1,4 @@
+import type { CalendarStatus } from "./calendar.js";
 import { formatDate, formatDateTime } from "./dates.js";
 import type { EventDetails, ScoutedEvent } from "./types.js";
 
@@ -68,12 +69,26 @@ function access(event: AlertEvent): string {
   }
 }
 
+function calendarLine(status: CalendarStatus): string {
+  switch (status.kind) {
+    case "free":
+      return "free";
+    case "conflicts": {
+      const titles = status.titles.map((title) => `"${title}"`).join(", ");
+      const more =
+        status.more > 0 ? ` +${String(status.more)} more` : status.truncated ? " and more" : "";
+      return `conflicts with ${titles}${more}`;
+    }
+    case "unknown":
+      return `couldn't check (${status.reason})`;
+  }
+}
+
 /**
  * Telegram alert (HTML parse mode, SPEC "Alert content"). Shows only listing data and page facts
- * that passed validation; everything else is named in the "unverified" line. Calendar status and
- * buttons are added in M3–M4.
+ * that passed validation; everything else is named in the "unverified" line. Buttons arrive in M4.
  */
-export function formatAlert(event: AlertEvent): string {
+export function formatAlert(event: AlertEvent, calendar: CalendarStatus): string {
   const lines = [
     `<b>${escapeHtml(event.title)}</b>`,
     escapeHtml(
@@ -94,6 +109,7 @@ export function formatAlert(event: AlertEvent): string {
   }
   if (event.prizes !== null) lines.push(`🏆 Prizes: ${escapeHtml(event.prizes)}`);
   if (event.eligibility !== null) lines.push(`🎓 Eligibility: ${escapeHtml(event.eligibility)}`);
+  lines.push(`📅 Calendar: ${escapeHtml(calendarLine(calendar))}`);
   if (event.score !== null) {
     const reason = event.scoreReason === null ? "" : ` · ${escapeHtml(event.scoreReason)}`;
     lines.push(`⭐ Worth it: ${String(event.score)}/10${reason}`);

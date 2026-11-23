@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import type { RunStats, Store } from "../../src/db/store.js";
 import { createReplayDeps, MAX_ALERT_ATTEMPTS, runPipeline } from "../../src/scout.js";
+import { CalendarError, type CalendarClient } from "../../src/calendar.js";
 import { TelegramError, type Messenger } from "../../src/telegram.js";
 
 const run = promisify(execFile);
@@ -16,8 +17,8 @@ function override<K extends keyof Store>(store: Store, key: K, impl: Store[K]): 
 }
 const FIXTURE = "test/fixtures/replay-basic";
 
-// docs/SPEC.md "End-to-end acceptance test", steps 1–5 (calendar and buttons arrive in M3–M4):
-// fetch → rules → dedupe → page extraction + score → Telegram.
+// docs/SPEC.md "End-to-end acceptance test", steps 1–5 (buttons arrive in M4):
+// fetch → rules → dedupe → page extraction + score → calendar check → Telegram.
 describe("scout pipeline in replay mode", () => {
   it("alerts the two worthwhile events with verified details, then dedupes", async () => {
     const deps = await createReplayDeps(FIXTURE);
@@ -55,6 +56,8 @@ describe("scout pipeline in replay mode", () => {
       expect(online).toContain("🗓 10 Dec 2026, 18:00 – 15 Jan 2027, 17:00 (America/New_York)");
       expect(online).toContain("⭐ Worth it: 8/10");
       expect(online).not.toContain("unverified");
+      // The fake calendar's dentist appointment (8 Dec) is before (a) starts: free.
+      expect(online).toContain("📅 Calendar: free");
       // (b) application in Athens: deadline and results date, application form linked on the page
       expect(athens).toContain(
         "🎟 Access: Application required · deadline 31 Jan 2027, 23:59 · results 10 Feb 2027",
@@ -62,6 +65,12 @@ describe("scout pipeline in replay mode", () => {
       expect(athens).toContain(
         '<a href="https://forms.example.org/athens-robotics-apply">Apply</a>',
       );
+      // The busy block on 21 Feb sits inside (b)'s 20–22 Feb span.
+      expect(athens).toContain("📅 Calendar: conflicts with &quot;Thesis defence rehearsal&quot;");
+      expect(deps.calendar.queries).toEqual([
+        { start: "2026-12-10T23:00:00.000Z", end: "2027-01-15T22:00:00.000Z" },
+        { start: "2027-02-20T07:00:00.000Z", end: "2027-02-22T16:00:00.000Z" },
+      ]);
       // Sonnet's travel-support quote is not on the page: not shown, flagged instead.
       expect(athens).not.toContain("fully covered");
       expect(athens).toContain("⚠️ unverified: travel support");
@@ -73,6 +82,28 @@ describe("scout pipeline in replay mode", () => {
       const second = await runPipeline(deps);
       expect(second).toMatchObject({ itemsNew: 0, llmCalls: 0, alertsSent: 0, costUsd: 0 });
       expect(deps.messenger.sent).toHaveLength(2);
+    } finally {
+      deps.store.close();
+    }
+  });
+
+  it("still alerts when the calendar is down, saying it couldn't check, and stops asking", async () => {
+    const deps = await createReplayDeps(FIXTURE);
+    let calls = 0;
+    const down: CalendarClient = {
+      busy: () => {
+        calls++;
+        return Promise.reject(new CalendarError("google calendar: HTTP 503"));
+      },
+    };
+    try {
+      const run = await runPipeline({ ...deps, calendar: down });
+      expect(run.alertsSent).toBe(2);
+      expect(run.errors).toEqual(["calendar: google calendar: HTTP 503"]);
+      expect(calls).toBe(1);
+      for (const sent of deps.messenger.sent) {
+        expect(sent.html).toContain("📅 Calendar: couldn't check (calendar unavailable)");
+      }
     } finally {
       deps.store.close();
     }

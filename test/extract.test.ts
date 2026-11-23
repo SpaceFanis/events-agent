@@ -402,7 +402,7 @@ describe("review regressions", () => {
       criteria,
     );
     expect(decideStatus(update, criteria, new Date("2026-12-06T00:00:00Z"))).toBe("closed");
-    const html = formatAlert({ ...event, ...update });
+    const html = formatAlert({ ...event, ...update }, { kind: "free" });
     expect(html).toContain("🎟 Access: Open · register by 5 Dec 2026\n");
   });
 });
