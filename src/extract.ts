@@ -96,7 +96,11 @@ Eligibility facts: ${eligibility === "" ? "none given" : eligibility}`;
 
   const prompt = `Today is ${now.toISOString().slice(0, 10)}.
 Listing (from ${event.source}): "${event.title}", location "${event.locationText}".
-Page URL: ${page.url}${page.truncated ? "\n(The page text was cut at the end because it is long.)" : ""}
+Page URL: ${page.url}${page.truncated ? "\n(The page text was cut at the end because it is long.)" : ""}${
+    page.kind === "listing"
+      ? `\n(The event page could not be read, so the text below is ${event.source}'s listing data for the event, not its page. Treat it as the page. Its "status" describes the submission period, not who may take part: set access only if the text says who can join. It has no registration deadline: leave apply_deadline null unless the text states one.)`
+      : ""
+  }
 
 <page>
 ${page.text}
@@ -240,7 +244,10 @@ function bareHost(host: string): string {
   return host.toLowerCase().replace(/^www\./, "");
 }
 
-/** A registration link counts only if the page links to it or it is on the event page's own host. */
+/**
+ * A registration link counts only if the page links to it or it is on the event page's own host.
+ * Listing data has just a couple of real links, so there it must be one of them exactly.
+ */
 export function linkIsTrusted(link: string, page: Page): boolean {
   let url: URL;
   try {
@@ -250,6 +257,7 @@ export function linkIsTrusted(link: string, page: Page): boolean {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
   if (page.links.has(url.toString())) return true;
+  if (page.kind === "listing") return false;
   return bareHost(url.hostname) === bareHost(new URL(page.url).hostname);
 }
 
@@ -412,7 +420,13 @@ export function validateExtraction(
   // Deadlines are read in the zone the alert shows them in (a mismatch is flagged "timezone" above).
   const deadlineZone = eventTimezone;
 
-  const access = checkEnum(extraction.access, foldedPage);
+  // Listing data says whether an event is invite-only, never whether anyone may join or who gets
+  // selected: from a listing only "invite" can be verified; other answers are ignored (not weak, so
+  // no paid re-check of a field the listing can't settle).
+  const access =
+    page.kind === "listing" && extraction.access.value !== "invite"
+      ? ({ state: "absent" } as const)
+      : checkEnum(extraction.access, foldedPage);
   let accessType: AccessType | null = event.accessType;
   if (access.state === "verified") {
     accessType = access.value;

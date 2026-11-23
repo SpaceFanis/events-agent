@@ -303,4 +303,115 @@ describe("extraction stage (M2) in replay mode", () => {
       deps.store.close();
     }
   });
+
+  it("extracts from Devpost's listing data when the event page is blocked (403)", async () => {
+    const deps = await createReplayDeps(FIXTURE);
+    const OPENAI = "https://openai-builders.devpost.com/";
+    const http = override<Http, "getText">(deps.http, "getText", (url) =>
+      url === OPENAI
+        ? Promise.reject(new HttpError(`GET ${url} failed: HTTP 403`, 403))
+        : deps.http.getText(url),
+    );
+    const field = (value: string | null, evidence: string | null) => ({
+      value,
+      evidence,
+      confidence: "high",
+    });
+    // Quotes from the listing text the Devpost adapter builds; nothing the listing doesn't state.
+    const listingAnswer = {
+      organiser: field("OpenBuild", "Organiser: OpenBuild"),
+      start: field("2026-12-10", "Submission period: Dec 10, 2026 - Jan 15, 2027"),
+      end: field("2027-01-15", "Submission period: Dec 10, 2026 - Jan 15, 2027"),
+      timezone: field(null, null),
+      location: field("Online", "Location: Online"),
+      city: field(null, null),
+      country: field(null, null),
+      attendance: field("online", "Location: Online"),
+      // The model over-reaches: a listing can't show who may join, so this must not verify access.
+      access: field("open", "Submission period: Dec 10, 2026 - Jan 15, 2027"),
+      register_url: field(
+        "https://openai-builders.devpost.com/?utm_source=devpost",
+        "Hackathon page: https://openai-builders.devpost.com/?utm_source=devpost",
+      ),
+      register_steps: field(null, null),
+      apply_deadline: field(null, null),
+      results_date: field(null, null),
+      cost: field(null, null),
+      travel_support: field(null, null),
+      prizes: field("$5,000", "Total prizes: $5,000"),
+      eligibility: field(null, null),
+      worth: { score: 8, reason: "Online AI hackathon, strong fit." },
+    };
+    const prompts: string[] = [];
+    const llm = override<LlmClient, "complete">(deps.llm, "complete", (request) => {
+      if (request.url !== `${OPENAI}#listing`) return deps.llm.complete(request);
+      prompts.push(request.prompt);
+      return Promise.resolve({
+        text: JSON.stringify(listingAnswer),
+        stopReason: "end_turn",
+        usage: { inputTokens: 500, outputTokens: 400 },
+      });
+    });
+    try {
+      const first = await runPipeline({ ...deps, http, llm });
+      expect(first.alertsSent).toBe(2);
+      expect(first.errors).toEqual([
+        "1 event pages blocked (HTTP 401/403): fell back to the source's listing data",
+      ]);
+      // The model is told it reads listing data, and the listing holds Devpost's facts.
+      expect(prompts[0]).toContain("listing data for the event, not its page");
+      expect(prompts[0]).toContain("Submission period: Dec 10, 2026 - Jan 15, 2027");
+      const alert = deps.messenger.sent.find((sent) => sent.html.includes("Open AI Builders"));
+      expect(alert?.html).toMatch(/unverified[^\n]*\baccess\b/);
+      // Access was ignored, not "weak": no paid Sonnet re-check of what a listing can't settle.
+      expect(first.llmCalls).toBe(4);
+      // Cached under the listing key only: a later real page extraction would not reuse it.
+      expect(await deps.store.getExtraction(`${OPENAI}#listing`)).not.toBeNull();
+      expect(await deps.store.getExtraction(OPENAI)).toBeNull();
+
+      // Cached under its own key: the next run neither refetches nor pays again.
+      const before = deps.llm.requests.length + prompts.length;
+      const second = await runPipeline({ ...deps, http, llm });
+      expect(second).toMatchObject({ llmCalls: 0, alertsSent: 0, errors: [] });
+      expect(deps.llm.requests.length + prompts.length).toBe(before);
+    } finally {
+      deps.store.close();
+    }
+  });
+
+  it("sends one 'pages blocked' notice a month when blocked pages have no listing to fall back on", async () => {
+    const deps = await createReplayDeps(FIXTURE);
+    const http = override<Http, "getText">(deps.http, "getText", (url) =>
+      url.includes(".devpost.com/")
+        ? Promise.reject(new HttpError(`GET ${url} failed: HTTP 403`, 403))
+        : deps.http.getText(url),
+    );
+    // A source without listing text (like a feed): blocked pages leave nothing to read.
+    const sources = deps.sources.map((source) => ({
+      name: source.name,
+      fetch: async () => {
+        const result = await source.fetch();
+        return {
+          ...result,
+          items: result.items.map((item) => {
+            const copy = { ...item };
+            delete copy.listingText;
+            return copy;
+          }),
+        };
+      },
+    }));
+    try {
+      const first = await runPipeline({ ...deps, http, sources });
+      expect(first).toMatchObject({ llmCalls: 0, alertsSent: 0 });
+      const notices = () =>
+        deps.messenger.sent.filter((sent) => sent.html.includes("refused us this run"));
+      expect(notices()).toHaveLength(1);
+      expect(notices()[0]?.html).toContain("3 event pages from source &quot;devpost&quot;");
+      await runPipeline({ ...deps, http, sources });
+      expect(notices()).toHaveLength(1);
+    } finally {
+      deps.store.close();
+    }
+  });
 });

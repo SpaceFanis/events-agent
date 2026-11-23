@@ -47,6 +47,18 @@ describe("DevpostSource", () => {
       prizes: "$100,000",
       tags: ["Beginner Friendly", "Machine Learning/AI", "Open Ended"],
       unverifiedFields: ["access"],
+      // Evidence for extraction when Devpost blocks the event page: only what the API states.
+      listingText: [
+        "Hackathon: Kiroween 2026",
+        "Organiser: Kiro",
+        "Location: Online",
+        "Submission period: Oct 30 - Dec 04, 2026",
+        "Themes: Beginner Friendly, Machine Learning/AI, Open Ended",
+        "Total prizes: $100,000",
+        "Participants registered: 18566",
+        "Hackathon page: https://kiroween.devpost.com/",
+        "Start a submission: https://kiroween.devpost.com/challenges/start_a_submission",
+      ].join("\n"),
     });
     // "Nov 11 - 30, 2026" and "Nov 11, 2026 - Jan 11, 2027"
     expect(items.map((item) => [item.startDate, item.endDate])).toEqual([

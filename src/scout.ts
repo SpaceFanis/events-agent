@@ -137,6 +137,8 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
 
     for (const event of survivors) {
       if ((await store.insertIfNew(event, "pending_extraction", startedAt)) !== null) itemsNew++;
+      // Events stored before their source gave listing text (or whose listing changed) get it now.
+      else await store.refreshListingText(event);
     }
 
     // Never alert from unextracted data: only events extraction moved to `new` reach the alert step.

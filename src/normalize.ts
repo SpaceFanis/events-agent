@@ -94,5 +94,6 @@ export function normalizeItem(item: SourceItem, criteria: Criteria): ScoutedEven
     prizes: item.prizes,
     tags: item.tags,
     unverifiedFields: [...unverified],
+    ...(item.listingText === undefined ? {} : { listingText: item.listingText }),
   };
 }

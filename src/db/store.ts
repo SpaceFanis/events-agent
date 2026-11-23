@@ -96,6 +96,8 @@ export interface Store {
   migrate(): Promise<void>;
   /** Inserts the event unless its URL, dedupe hash or source id is already known. Returns the new id or null. */
   insertIfNew(event: ScoutedEvent, status: string, now: Date): Promise<number | null>;
+  /** Updates the listing text of an already stored event that is still waiting for extraction. */
+  refreshListingText(event: ScoutedEvent): Promise<void>;
   /**
    * Events in status `new` with no alert claimed yet, not ended, and fewer than `maxAttempts` failed sends.
    * Includes retries after a failed send.
@@ -235,6 +237,11 @@ function integer(row: Row, column: string): number {
   throw new Error(`events.${column}: expected integer`);
 }
 
+function listingTextOf(row: Row): { listingText?: string } {
+  const value = textOrNull(row, "listing_text");
+  return value === null ? {} : { listingText: value };
+}
+
 function toStoredEvent(row: Row): StoredEvent {
   return {
     id: integer(row, "id"),
@@ -257,6 +264,7 @@ function toStoredEvent(row: Row): StoredEvent {
     prizes: textOrNull(row, "prizes"),
     tags: stringArray.parse(JSON.parse(text(row, "tags"))),
     unverifiedFields: stringArray.parse(JSON.parse(text(row, "unverified_fields"))),
+    ...listingTextOf(row),
     city: textOrNull(row, "city"),
     country: textOrNull(row, "country"),
     registerSteps: textOrNull(row, "register_steps"),
@@ -361,8 +369,8 @@ export class LibsqlStore implements Store {
       sql: `INSERT INTO events (
         source, source_id, canonical_url, dedupe_hash, title, organiser, type, starts_at, ends_at,
         timezone, location_text, is_online, location_tier, access_type, register_url, prizes, tags,
-        unverified_fields, status, first_seen_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        unverified_fields, listing_text, status, first_seen_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT DO NOTHING RETURNING id`,
       args: [
         event.source,
@@ -383,6 +391,7 @@ export class LibsqlStore implements Store {
         event.prizes,
         JSON.stringify(event.tags),
         JSON.stringify(event.unverifiedFields),
+        event.listingText ?? null,
         status,
         at,
         at,
@@ -390,6 +399,17 @@ export class LibsqlStore implements Store {
     });
     const row = result.rows[0];
     return row === undefined ? null : integer(row, "id");
+  }
+
+  async refreshListingText(event: ScoutedEvent): Promise<void> {
+    if (event.listingText === undefined) return;
+    // Only while it can still be used: an extracted event keeps the evidence it was judged on.
+    await this.client.execute({
+      sql: `UPDATE events SET listing_text = ?
+       WHERE source = ? AND source_id = ? AND status = 'pending_extraction'
+         AND listing_text IS NOT ?`,
+      args: [event.listingText, event.source, event.sourceId, event.listingText],
+    });
   }
 
   async eventsAwaitingAlert(now: Date, maxAttempts: number, limit: number): Promise<StoredEvent[]> {

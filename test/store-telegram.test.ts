@@ -33,6 +33,34 @@ const base: SourceItem = {
 };
 const now = new Date("2026-12-01T09:00:00Z");
 
+describe("LibsqlStore listing text", () => {
+  it("fills in listing text for a pending event stored without it, but not after extraction", async () => {
+    const store = await openStore(":memory:");
+    try {
+      const plain = normalizeItem(base, criteria);
+      const pendingId = await store.insertIfNew(plain, "pending_extraction", now);
+      const other = normalizeItem(
+        { ...base, sourceId: "9", url: "https://c.example.com/", startDate: "2026-12-11" },
+        criteria,
+      );
+      const doneId = await store.insertIfNew(other, "new", now);
+      if (pendingId === null || doneId === null) throw new Error("insert failed");
+      expect(await store.getEvent(pendingId)).not.toHaveProperty("listingText");
+
+      await store.refreshListingText({ ...plain, listingText: "Hackathon: Hack v1" });
+      await store.refreshListingText({ ...other, listingText: "Hackathon: Other" });
+      expect(await store.getEvent(pendingId)).toMatchObject({ listingText: "Hackathon: Hack v1" });
+      // An extracted event keeps the evidence it was judged on.
+      expect(await store.getEvent(doneId)).not.toHaveProperty("listingText");
+
+      await store.refreshListingText({ ...plain, listingText: "Hackathon: Hack v2" });
+      expect(await store.getEvent(pendingId)).toMatchObject({ listingText: "Hackathon: Hack v2" });
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe("LibsqlStore", () => {
   it("inserts once per URL, dedupe hash or source id, and round-trips events", async () => {
     const store = await openStore(":memory:");
