@@ -3,6 +3,14 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { formatAlert } from "./alert.js";
+import {
+  checkCalendar,
+  FakeCalendar,
+  GoogleCalendar,
+  UnconfiguredCalendar,
+  type CalendarClient,
+  type CalendarStatus,
+} from "./calendar.js";
 import { loadCriteria, type Criteria } from "./config.js";
 import { openStore, type Store } from "./db/store.js";
 import { enrichPending } from "./enrich.js";
@@ -37,6 +45,7 @@ export interface PipelineDeps {
   http: Http;
   llm: LlmClient;
   messenger: Messenger;
+  calendar: CalendarClient;
   now: () => Date;
   mode: RunSummary["mode"];
 }
@@ -53,7 +62,7 @@ function message(error: unknown): string {
 
 /**
  * One scouting pass: fetch → normalize → rule filter → dedupe/store → page extraction + score →
- * alert. The calendar check (M3) slots in before the alert.
+ * calendar check → alert.
  */
 export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
   const { criteria, store, messenger } = deps;
@@ -110,12 +119,24 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
       MAX_ALERT_ATTEMPTS,
       criteria.limits.maxAlertsPerRun,
     );
+    // After the first failed calendar check the rest of the run skips it: an outage or bad token
+    // would fail every call, and the alert goes out with "couldn't check" instead of waiting.
+    let calendarDown = false;
     for (const event of awaiting) {
       const claim = await store.claimAlert(event.id, messenger.chatId, deps.now());
       if (claim === null) continue; // another run got it first
+      let calendar: CalendarStatus = { kind: "unknown", reason: "calendar unavailable" };
+      if (!calendarDown) {
+        try {
+          calendar = await checkCalendar(deps.calendar, event);
+        } catch (error) {
+          calendarDown = true;
+          errors.push(`calendar: ${message(error)}`);
+        }
+      }
       let html;
       try {
-        html = formatAlert(event);
+        html = formatAlert(event, calendar);
       } catch (error) {
         // This event's data is bad (e.g. an invalid time zone): count it against the event, don't block the rest.
         errors.push(`alert for event ${String(event.id)}: cannot format: ${message(error)}`);
@@ -199,7 +220,7 @@ const replayConfigSchema = z.strictObject({
 /** Offline dependencies: recorded HTTP and LLM fixtures, in-memory DB, fake Telegram, frozen clock. */
 export async function createReplayDeps(
   replayDir: string,
-): Promise<PipelineDeps & { messenger: FakeMessenger; llm: ReplayLlm }> {
+): Promise<PipelineDeps & { messenger: FakeMessenger; llm: ReplayLlm; calendar: FakeCalendar }> {
   const criteria = await loadCriteria(replayCriteriaPath(replayDir));
   const config = replayConfigSchema.parse(
     JSON.parse(await readFile(join(replayDir, "replay.json"), "utf8")),
@@ -215,9 +236,28 @@ export async function createReplayDeps(
     http,
     llm: new ReplayLlm(replayDir),
     messenger: new FakeMessenger(),
+    calendar: new FakeCalendar(replayDir),
     now: () => now,
     mode: "replay",
   };
+}
+
+/**
+ * Google Calendar is optional until M6: without credentials alerts say "calendar: couldn't check".
+ * A partial setup is a mistake, not a choice, so it stops the run.
+ */
+function calendarFromEnv(env: NodeJS.ProcessEnv, criteria: Criteria): CalendarClient {
+  const names = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"] as const;
+  const set = names.filter((name) => (env[name] ?? "") !== "");
+  if (set.length === 0) return new UnconfiguredCalendar();
+  return new GoogleCalendar(
+    {
+      clientId: requireEnv(env, "GOOGLE_CLIENT_ID"),
+      clientSecret: requireEnv(env, "GOOGLE_CLIENT_SECRET"),
+      refreshToken: requireEnv(env, "GOOGLE_REFRESH_TOKEN"),
+    },
+    criteria.calendar.check,
+  );
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -247,6 +287,7 @@ export async function createLiveDeps(
     http,
     llm: new AnthropicLlm(new Anthropic({ apiKey, timeout: 120_000 })),
     messenger: new TelegramMessenger(botToken, chatId),
+    calendar: calendarFromEnv(env, criteria),
     now: () => new Date(),
     mode: "live",
   };

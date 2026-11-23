@@ -12,7 +12,8 @@
     "check": "npm run -s check:fast && npm run -s test && npm run -s build",
     "e2e": "vitest run --config vitest.e2e.config.ts",
     "scout": "tsx --env-file-if-exists=.env src/main.ts",
-    "replay": "tsx src/main.ts --replay test/fixtures/replay-basic"
+    "replay": "tsx src/main.ts --replay test/fixtures/replay-basic",
+    "google:auth": "tsx --env-file-if-exists=.env src/google-auth.ts"
   },
   "keywords": [],
   "author": "",

@@ -27,3 +27,5 @@ sources:
   - kind: mlh
 calendar:
   tentativeHoldOnApply: false
+  # Google calendar ids checked for conflicts ("primary" is your main calendar).
+  check: [primary]
