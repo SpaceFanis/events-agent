@@ -356,7 +356,10 @@ export class GoogleCalendar implements CalendarClient, CalendarWriter {
   private async request(url: URL, label: string, init: RequestInit): Promise<unknown> {
     let response: Response;
     try {
-      response = await this.fetchFn(url, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
+      // Called as a plain function: Cloudflare Workers reject `fetch` invoked with another `this`
+      // ("Illegal invocation"), which showed up as "google oauth: network error" on button presses.
+      const fetchFn = this.fetchFn;
+      response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
     } catch (error) {
       const timedOut =
         error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");

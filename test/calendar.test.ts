@@ -152,6 +152,20 @@ describe("GoogleCalendar", () => {
       new GoogleCalendar(CREDENTIALS, ["primary"], offline).busy(...RANGE),
     ).rejects.toThrow("google oauth: network error");
   });
+
+  it("calls fetch as a plain function, as Cloudflare Workers require", async () => {
+    const { fetchFn: google } = fakeGoogle({ primary: { items: [] } });
+    // Workers' fetch throws "Illegal invocation" when called with another `this` (e.g. as a
+    // method of the calendar); that surfaced as "google oauth: network error" on button presses.
+    const workersFetch = function (this: unknown, ...args: Parameters<typeof fetch>) {
+      if (this !== undefined && this !== globalThis) {
+        return Promise.reject(new TypeError("Illegal invocation"));
+      }
+      return google(...args);
+    } as typeof fetch;
+    const calendar = new GoogleCalendar(CREDENTIALS, ["primary"], workersFetch);
+    await expect(calendar.busy(...RANGE)).resolves.toMatchObject({ events: [] });
+  });
 });
 
 describe("checkCalendar", () => {
