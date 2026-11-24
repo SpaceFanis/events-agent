@@ -1,8 +1,12 @@
 name: Scout
 on:
   schedule:
-    # Daily at 05:17 UTC (07:17 Athens in winter). Off the hour: top-of-hour cron jobs queue longest.
+    # 05:17 UTC (07:17 Athens in winter) plus a backup at 15:47 UTC: GitHub may delay or drop
+    # scheduled runs (none fired on 2026-11-24). A second run is safe: alerts, reminders and
+    # notices are claimed once, extractions are cached, and it only pays for events new since
+    # the morning. Off the hour, because top-of-hour cron jobs queue longest.
     - cron: "17 5 * * *"
+    - cron: "47 15 * * *"
   workflow_dispatch:
 permissions:
   contents: read
