@@ -1,4 +1,4 @@
-import { DISMISS_REASONS, encodePress, type DismissReason, type StatusAction } from "./status.js";
+import { encodePress, type DismissReason, type StatusAction } from "./status.js";
 import type { ActionableEvent } from "./types.js";
 
 /** One inline button: its label and the callback data the webhook receives. */
@@ -92,15 +92,16 @@ export function keyboardFor(event: ButtonEvent, dismissReason: string | null): I
             ],
           ]
         : [info("❌ Rejected")];
-    case "dismissed": {
-      if (dismissReason !== null)
-        return [info(`🙅 Not interested · ${reasonLabel(dismissReason)}`)];
-      const reasons = Object.values(DISMISS_REASONS).map((reason) => ({
-        text: REASON_LABELS[reason],
-        data: encodePress({ kind: "reason", reason, eventId: id }),
-      }));
-      return [info("🙅 Not interested · why? (optional)"), reasons.slice(0, 3), reasons.slice(3)];
-    }
+    case "dismissed":
+      // No "why?" buttons: nothing used the answers. A reason given on an older message (which
+      // still shows those buttons and still works) is shown here.
+      return [
+        info(
+          dismissReason === null
+            ? "🙅 Not interested"
+            : `🙅 Not interested · ${reasonLabel(dismissReason)}`,
+        ),
+      ];
     default:
       return [];
   }

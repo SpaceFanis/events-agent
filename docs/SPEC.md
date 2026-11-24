@@ -31,13 +31,13 @@ Title · type · organiser · when (local time + timezone) · where / online · 
 ```
 below_threshold ──threshold_recheck (a lowered minScore lets it through)──► new
 new ──Going──────────────► going ──(calendar event created)
- │  ──Not interested─────► dismissed (reason optional)
+ │  ──Not interested─────► dismissed
  │  ──Remind me──────────► watching ──(deadline reminders; same buttons)
  └─ (application) I applied ► awaiting_result ──Accepted──► accepted (calendar event created)
                                              └─Rejected──► rejected
 ```
 
-Open events (and invite-only or unknown access) show [Going] [Remind me] [Not interested]. Application events show [I applied] [Remind me] [Not interested]. In `watching` the same choices stay, minus Remind me, under a "🔔 Reminders on" label. Once an event is in `awaiting_result` the buttons become [Accepted] [Rejected]. Final statuses keep one label-only button showing where the event ended. After Not interested, optional reason buttons (topic, location, dates, cost, other) store a `dismiss_reason` action. A press that doesn't fit the current status (double tap, redelivered update, old message) changes nothing and re-renders the real buttons.
+Open events (and invite-only or unknown access) show [Going] [Remind me] [Not interested]. Application events show [I applied] [Remind me] [Not interested]. In `watching` the same choices stay, minus Remind me, under a "🔔 Reminders on" label. Once an event is in `awaiting_result` the buttons become [Accepted] [Rejected]. Final statuses keep one label-only button showing where the event ended. Not interested asks no reason: the optional reason buttons (topic, location, dates, cost, other) were removed on 2026-11-25 because nothing used the answers. Reason buttons on older messages still work and store a `dismiss_reason` action. A press that doesn't fit the current status (double tap, redelivered update, old message) changes nothing and re-renders the real buttons.
 
 Calendar entries go to the primary calendar with an id derived from the event's canonical URL, so writes are idempotent: an insert that hits an existing id (409) replaces that entry in full (events.update, not patch, so all-day ↔ timed changes are clean). Events whose times are unverified become all-day entries over their local dates; events with unknown dates get no entry. If a calendar write fails the status is still saved, the toast says why, and going/accepted events show [📅 Add to calendar] to retry. An optional config flag (`calendar.tentativeHoldOnApply`, default off) adds a tentative "Applied: …" hold on I applied; Accepted turns that same entry into the confirmed one and Rejected deletes it by its deterministic id (even if the hold insert timed out and its id was never stored); a failed delete shows [🗑 Remove calendar hold] to retry. Only the first "not interested" reason is logged.
 
@@ -58,7 +58,7 @@ Calendar entries go to the primary calendar with an id derived from the event's 
 - Eventbrite and Meetup: their public search APIs are restricted. Revisit in v2.
 - Web dashboard, multiple users, editing criteria via Telegram.
 - Auto-applying or auto-registering for events.
-- Learning from feedback automatically (v1 only stores "not interested" reasons; I tune the YAML myself).
+- Learning from feedback automatically (v1 records "not interested" presses only; I tune the YAML myself).
 
 ## Architecture decisions
 

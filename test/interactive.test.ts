@@ -107,11 +107,11 @@ describe("buttons per status", () => {
       ["🎉 Accepted", "❌ Rejected"],
     ]);
     expect(texts(keyboardFor({ ...base, status: "rejected" }, null))).toEqual([["❌ Rejected"]]);
+    // No "why?" buttons any more: the answers weren't used for anything.
     expect(texts(keyboardFor({ ...base, status: "dismissed" }, null))).toEqual([
-      ["🙅 Not interested · why? (optional)"],
-      ["Topic", "Location", "Dates"],
-      ["Cost", "Other"],
+      ["🙅 Not interested"],
     ]);
+    // A reason given on an older message (whose buttons still work) is still shown.
     expect(texts(keyboardFor({ ...base, status: "dismissed" }, "dates"))).toEqual([
       ["🙅 Not interested · Dates"],
     ]);
