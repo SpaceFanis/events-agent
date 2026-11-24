@@ -336,6 +336,50 @@ describe("scout pipeline in replay mode", () => {
     }
   });
 
+  it("alerts an earlier-scored event once its threshold is lowered, without a new LLM call", async () => {
+    const deps = await createReplayDeps(FIXTURE);
+    try {
+      const first = await runPipeline(deps);
+      expect(first.alertsSent).toBe(2); // (d) Berlin meetup, abroad score 6 < 9: below threshold
+      const llmCalls = deps.llm.requests.length;
+
+      const lowered = {
+        ...deps,
+        criteria: { ...deps.criteria, minScore: { ...deps.criteria.minScore, abroad: 6 } },
+      };
+      const second = await runPipeline(lowered);
+      expect(second).toMatchObject({
+        llmCalls: 0,
+        alertsSent: 1,
+        errors: ["1 earlier-scored events now meet the minScore thresholds: moved to new (alerts are capped at maxAlertsPerRun per run)"],
+      });
+      expect(deps.llm.requests.length).toBe(llmCalls);
+      expect(deps.messenger.sent.at(-1)?.html).toContain("Berlin");
+      // Promoted once: the next run neither re-promotes nor re-alerts it.
+      expect(await runPipeline(lowered)).toMatchObject({ alertsSent: 0, errors: [] });
+    } finally {
+      deps.store.close();
+    }
+  });
+
+  it("never promotes an event that has ended, whatever the threshold", async () => {
+    const deps = await createReplayDeps(FIXTURE);
+    try {
+      await runPipeline(deps);
+      // Years later: every fixture event has ended.
+      const later = new Date("2030-01-01T00:00:00Z");
+      const promoted = await runPipeline({
+        ...deps,
+        now: () => later,
+        criteria: { ...deps.criteria, minScore: { local: 0, country: 0, abroad: 0, online: 0 } },
+      });
+      expect(promoted.alertsSent).toBe(0);
+      expect(promoted.errors.filter((e) => e.includes("minScore"))).toEqual([]);
+    } finally {
+      deps.store.close();
+    }
+  });
+
   it("CLI runs offline and prints a single JSON summary", async () => {
     const { stdout } = await run("npx", ["tsx", "src/main.ts", "--replay", FIXTURE]);
     const summary = JSON.parse(stdout.trim()) as Record<string, unknown>;
