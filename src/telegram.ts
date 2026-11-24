@@ -86,7 +86,8 @@ export class TelegramMessenger implements Messenger {
     let response: Response;
     let body: unknown;
     try {
-      response = await this.fetchFn(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
+      const fetchFn = this.fetchFn; // plain call: see GoogleCalendar.request
+      response = await fetchFn(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

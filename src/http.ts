@@ -30,7 +30,8 @@ export class FetchHttp implements Http {
   ) {}
 
   async getJson(url: string): Promise<unknown> {
-    const response = await this.fetchFn(url, {
+    const fetchFn = this.fetchFn; // plain call: see GoogleCalendar.request
+    const response = await fetchFn(url, {
       headers: { accept: "application/json", "user-agent": "hackscout/1.0" },
       signal: AbortSignal.timeout(this.timeoutMs),
     });
@@ -41,7 +42,8 @@ export class FetchHttp implements Http {
   }
 
   async getText(url: string): Promise<string> {
-    const response = await this.fetchFn(url, {
+    const fetchFn = this.fetchFn; // plain call: see GoogleCalendar.request
+    const response = await fetchFn(url, {
       headers: { accept: "text/html,application/xhtml+xml", "user-agent": "hackscout/1.0" },
       signal: AbortSignal.timeout(this.timeoutMs),
     });
