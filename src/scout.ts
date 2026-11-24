@@ -21,6 +21,7 @@ import { FetchHttp, ReplayHttp, type Http } from "./http.js";
 import { AnthropicLlm, ReplayLlm, type LlmClient } from "./llm.js";
 import { normalizeItem } from "./normalize.js";
 import { sendNoticeOnce } from "./notices.js";
+import { recheckThresholds } from "./recheck.js";
 import { sendReminders } from "./reminders.js";
 import { SETTING_TENTATIVE_HOLD } from "./settings.js";
 import { buildSources } from "./sources/index.js";
@@ -143,6 +144,14 @@ export async function runPipeline(deps: PipelineDeps): Promise<RunSummary> {
 
     // Never alert from unextracted data: only events extraction moved to `new` reach the alert step.
     await enrichPending(deps, runId, errors, llm);
+
+    // Thresholds may have been lowered since these events were scored (free: scores are stored).
+    const promoted = await recheckThresholds(store, criteria, startedAt);
+    if (promoted > 0) {
+      errors.push(
+        `${String(promoted)} earlier-scored events now meet the minScore thresholds: moved to new (alerts are capped at maxAlertsPerRun per run)`,
+      );
+    }
 
     // Alert claims from earlier runs that were never confirmed (crash, timeout, failed write) need a
     // human look. Checked before this run claims anything; recent `claimed` rows may belong to an

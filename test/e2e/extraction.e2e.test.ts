@@ -360,6 +360,8 @@ describe("extraction stage (M2) in replay mode", () => {
       ]);
       // The model is told it reads listing data, and the listing holds Devpost's facts.
       expect(prompts[0]).toContain("listing data for the event, not its page");
+      // Missing travel support or eligibility in a listing must not lower the score.
+      expect(prompts[0]).toContain("unknown, not absent");
       expect(prompts[0]).toContain("Submission period: Dec 10, 2026 - Jan 15, 2027");
       const alert = deps.messenger.sent.find((sent) => sent.html.includes("Open AI Builders"));
       expect(alert?.html).toMatch(/unverified[^\n]*\baccess\b/);

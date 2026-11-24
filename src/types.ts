@@ -91,7 +91,7 @@ export const NO_DETAILS: EventDetails = {
 };
 
 /**
- * pending_extraction → new (alerted) | below_threshold | closed (deadline passed or ended per the page)
+ * pending_extraction → new (alerted) | below_threshold (→ new later if a lowered minScore lets it through) | closed (deadline passed or ended per the page)
  * | extraction_failed (the LLM kept failing on this page). After the alert, my button presses move
  * it through the status machine (src/status.ts).
  */

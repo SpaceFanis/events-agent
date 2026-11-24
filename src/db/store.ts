@@ -190,6 +190,8 @@ export interface Store {
     action: string,
     now: Date,
   ): Promise<boolean>;
+  /** Scored events below their tier's minimum (re-checked when thresholds change). */
+  eventsBelowThreshold(now: Date, minScore: number): Promise<StoredEvent[]>;
   /** Logs the optional "not interested" reason, only if none is stored yet. Returns whether it did. */
   recordDismissReason(eventId: number, reason: string, now: Date): Promise<boolean>;
   /** The reason of the latest `action` row with one, or null. */
@@ -803,6 +805,22 @@ export class LibsqlStore implements Store {
       "write",
     );
     return update !== undefined && update.rowsAffected === 1;
+  }
+
+  async eventsBelowThreshold(now: Date, minScore: number): Promise<StoredEvent[]> {
+    const at = now.toISOString();
+    // Only rows that could still qualify: the table keeps every low scorer forever, and this runs
+    // twice a day, so ended events and scores under the lowest current minimum stay in the DB.
+    const result = await this.client.execute({
+      sql: `SELECT * FROM events
+       WHERE status = 'below_threshold' AND score IS NOT NULL AND score >= ?
+         AND (ends_at IS NULL OR ends_at >= ?)
+         AND (apply_deadline IS NULL OR apply_deadline >= ?)
+         AND (ends_at IS NOT NULL OR starts_at >= ?)
+       ORDER BY id`,
+      args: [minScore, at, at, at],
+    });
+    return result.rows.map(toStoredEvent);
   }
 
   async recordDismissReason(eventId: number, reason: string, now: Date): Promise<boolean> {

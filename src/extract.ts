@@ -98,7 +98,7 @@ Eligibility facts: ${eligibility === "" ? "none given" : eligibility}`;
 Listing (from ${event.source}): "${event.title}", location "${event.locationText}".
 Page URL: ${page.url}${page.truncated ? "\n(The page text was cut at the end because it is long.)" : ""}${
     page.kind === "listing"
-      ? `\n(The event page could not be read, so the text below is ${event.source}'s listing data for the event, not its page. Treat it as the page. Its "status" describes the submission period, not who may take part: set access only if the text says who can join. It has no registration deadline: leave apply_deadline null unless the text states one.)`
+      ? `\n(The event page could not be read, so the text below is ${event.source}'s listing data for the event, not its page. Treat it as the page. Its "status" describes the submission period, not who may take part: set access only if the text says who can join. It has no registration deadline: leave apply_deadline null unless the text states one. Listing data usually lacks travel support, eligibility and cost: when it doesn't mention them they are unknown, not absent, so don't count their absence against the event's worth score. Anything it does state (e.g. an invite-only requirement) counts normally.)`
       : ""
   }
 
@@ -526,7 +526,11 @@ function checkEnum<T extends string>(
 }
 
 /** Where a validated event goes next (SPEC core flow steps 5–6). */
-export function decideStatus(update: ExtractionUpdate, criteria: Criteria, now: Date): EventStatus {
+export function decideStatus(
+  update: Pick<ExtractionUpdate, "endsAt" | "applyDeadline" | "score" | "locationTier">,
+  criteria: Criteria,
+  now: Date,
+): EventStatus {
   const nowIso = now.toISOString();
   if (update.endsAt !== null && update.endsAt < nowIso) return "closed";
   // Registration or application closed (SPEC rule: deadline not passed), whatever the access type.
