@@ -4,7 +4,7 @@ import type { EventStatus } from "./types.js";
  * The event status machine (SPEC "Event status machine"):
  *
  *   new ──Going──────────► going (calendar entry)
- *    │  ──Not interested──► dismissed (reason optional)
+ *    │  ──Not interested──► dismissed
  *    │  ──Remind me───────► watching ──(same choices; deadline reminders, src/reminders.ts)
  *    └─ I applied ────────► awaiting_result ──Accepted──► accepted (calendar entry)
  *                                           └─Rejected──► rejected
